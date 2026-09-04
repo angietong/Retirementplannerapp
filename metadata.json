@@ -1,0 +1,6 @@
+{
+  "name": "Retirement Financial Planner",
+  "description": "Comprehensive retirement financial planning and simulation tool with income sources, expense modeling, priority-based withdrawal sequencing, tax projections, and depletion forecasting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
