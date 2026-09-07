@@ -22,6 +22,7 @@ export interface IncomeSource {
   startAge: number;
   notes: string;
   owner?: SourceOwner;
+  accountType?: '401k' | 'ira' | 'roth' | 'brokerage' | 'cash' | 'other';
 }
 
 export interface ScenarioParams {
@@ -47,7 +48,12 @@ export interface MilestoneAges {
   rmdAge: number;
   medicareAge: number;
   ssMinAge: number;
-  retireAcctAge: number;
+  four01kAge: number;
+  iraAge: number;
+  spouseFour01kAge?: number;
+  spouseIraAge?: number;
+  spouseSsMinAge?: number;
+  retireAcctAge?: number; // legacy fallback
 }
 
 export interface RateAssumptions {

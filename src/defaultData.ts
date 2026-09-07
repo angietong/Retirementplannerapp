@@ -66,7 +66,11 @@ export const DEFAULT_CONFIG: PlannerConfig = {
     rmdAge: 73,
     medicareAge: 65,
     ssMinAge: 62,
-    retireAcctAge: 60,
+    four01kAge: 55, // Rule of 55 for employer plans
+    iraAge: 60,     // Traditional / Roth IRA standard access age
+    spouseFour01kAge: 55,
+    spouseIraAge: 60,
+    spouseSsMinAge: 62,
   },
   rates: {
     investRate: 0.06,
@@ -95,9 +99,10 @@ export const DEFAULT_CONFIG: PlannerConfig = {
       monthly: 'N',
       taxType: 'Income',
       annualPayment: 0,
-      startAge: 60,
-      notes: 'taxed as income on withdrawal',
+      startAge: 55,
+      notes: 'taxed as income on withdrawal (Rule of 55 eligible)',
       owner: 'primary',
+      accountType: '401k',
     },
     {
       id: 'src-2',
@@ -107,9 +112,10 @@ export const DEFAULT_CONFIG: PlannerConfig = {
       monthly: 'N',
       taxType: 'Income',
       annualPayment: 0,
-      startAge: 60,
-      notes: "tapped once Jane reaches 60",
+      startAge: 55,
+      notes: "tapped once Jane reaches 55 (Rule of 55)",
       owner: 'spouse',
+      accountType: '401k',
     },
     {
       id: 'src-3',
@@ -120,8 +126,9 @@ export const DEFAULT_CONFIG: PlannerConfig = {
       taxType: 'Income',
       annualPayment: 0,
       startAge: 60,
-      notes: '',
+      notes: 'penalties apply before age 59½',
       owner: 'primary',
+      accountType: 'ira',
     },
     {
       id: 'src-4',
@@ -134,6 +141,7 @@ export const DEFAULT_CONFIG: PlannerConfig = {
       startAge: 55,
       notes: 'gains taxed at capital-gain rate',
       owner: 'joint',
+      accountType: 'brokerage',
     },
     {
       id: 'src-5',
@@ -146,6 +154,7 @@ export const DEFAULT_CONFIG: PlannerConfig = {
       startAge: 55,
       notes: 'tax-free cash reserve',
       owner: 'joint',
+      accountType: 'cash',
     },
     {
       id: 'src-6',

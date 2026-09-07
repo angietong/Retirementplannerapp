@@ -93,6 +93,31 @@ export function runSimulation(
   const { scenario, milestones, rates, expenses, sources, projectionYears } = config;
   const rothConfig = overrideRothConfig ?? config.rothConversion;
 
+  const four01kAge = milestones.four01kAge ?? milestones.retireAcctAge ?? 55;
+  const iraAge = milestones.iraAge ?? milestones.retireAcctAge ?? 60;
+  const ssMinAge = milestones.ssMinAge ?? 62;
+
+  const spouseFour01kAge = milestones.spouseFour01kAge ?? four01kAge;
+  const spouseIraAge = milestones.spouseIraAge ?? iraAge;
+  const spouseSsMinAge = milestones.spouseSsMinAge ?? ssMinAge;
+
+  const getSourceRequiredAge = (s: typeof sources[0]) => {
+    const owner = s.owner || 'primary';
+    const isSpouseOwner = owner === 'spouse';
+    const acctFour01kAge = isSpouseOwner ? spouseFour01kAge : four01kAge;
+    const acctIraAge = isSpouseOwner ? spouseIraAge : iraAge;
+
+    const lowerName = s.name.toLowerCase();
+    const type = s.accountType;
+    if (type === '401k' || (!type && (lowerName.includes('401k') || lowerName.includes('403b') || lowerName.includes('employer')))) {
+      return s.startAge && s.startAge !== 60 ? s.startAge : acctFour01kAge;
+    }
+    if (type === 'ira' || type === 'roth' || (!type && (lowerName.includes('ira') || lowerName.includes('roth')))) {
+      return s.startAge && s.startAge !== 60 ? s.startAge : acctIraAge;
+    }
+    return s.startAge || 0;
+  };
+
   const [retYearStr] = scenario.retDate.split('-');
   const retYear = parseInt(retYearStr, 10) || 2030;
   const retDateObj = new Date(scenario.retDate);
@@ -246,9 +271,14 @@ export function runSimulation(
     // Phase calculation:
     let phase = 0;
     if (yr > 0) {
+      const primaryReachedSS = age >= ssMinAge;
+      const spouseReachedSS = hasSpouse && spouseAge !== undefined ? spouseAge >= spouseSsMinAge : primaryReachedSS;
+      const ssReached = hasSpouse ? (primaryReachedSS || spouseReachedSS) : primaryReachedSS;
+
       phase = 1 +
-        (age >= milestones.retireAcctAge ? 1 : 0) +
-        (age >= milestones.ssMinAge ? 1 : 0) +
+        (age >= four01kAge ? 1 : 0) +
+        (age >= iraAge ? 1 : 0) +
+        (ssReached ? 1 : 0) +
         (age >= milestones.medicareAge ? 1 : 0) +
         (age >= milestones.rmdAge ? 1 : 0);
     }
@@ -262,7 +292,7 @@ export function runSimulation(
       if (s.monthly === 'Y') {
         const owner = s.owner || 'primary';
         let isAccessible = false;
-        const requiredStartAge = s.startAge || 0;
+        const requiredStartAge = getSourceRequiredAge(s);
 
         if (owner === 'spouse' && hasSpouse && spouseAge !== undefined) {
           isAccessible = spouseAge >= requiredStartAge;
@@ -344,7 +374,7 @@ export function runSimulation(
         const orderKey = (s.priority ?? 9999) + idx * 0.0001;
         const beginBal = beginBalanceBySource[s.id];
         const owner = s.owner || 'primary';
-        const requiredStartAge = s.startAge || 0;
+        const requiredStartAge = getSourceRequiredAge(s);
 
         let isAccessible = false;
         if (owner === 'spouse' && hasSpouse && spouseAge !== undefined) {

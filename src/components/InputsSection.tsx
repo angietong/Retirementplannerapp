@@ -214,6 +214,7 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                   <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
                     <th className="py-2.5 px-3 w-14">Order</th>
                     <th className="py-2.5 px-3">Account / Source Name</th>
+                    <th className="py-2.5 px-3">Account Category</th>
                     {hasSpouse && <th className="py-2.5 px-3">Owner</th>}
                     <th className="py-2.5 px-3 text-right">Initial Balance ($)</th>
                     <th className="py-2.5 px-3">Type</th>
@@ -257,6 +258,20 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                           onChange={e => updateSource(s.id, { name: e.target.value })}
                           className="w-full font-medium text-slate-900 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-emerald-500"
                         />
+                      </td>
+                      <td className="py-2 px-3">
+                        <select
+                          value={s.accountType || 'other'}
+                          onChange={e => updateSource(s.id, { accountType: e.target.value as any })}
+                          className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-800 focus:outline-emerald-500 bg-white"
+                        >
+                          <option value="401k">401(k) / 403(b)</option>
+                          <option value="ira">Traditional IRA</option>
+                          <option value="roth">Roth IRA / Roth</option>
+                          <option value="brokerage">Taxable Brokerage</option>
+                          <option value="cash">Cash / Savings</option>
+                          <option value="other">Other / Pension</option>
+                        </select>
                       </td>
                       {hasSpouse && (
                         <td className="py-2 px-3">
@@ -549,58 +564,137 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                 Milestone Ages & Distribution Rules
               </h3>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    401k / IRA Access Age
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={config.milestones.retireAcctAge}
-                    onChange={e => updateMilestone('retireAcctAge', parseFloat(e.target.value) || 0)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                  />
-                  <p className="text-[10px] text-slate-500 mt-0.5">IRS Rule 59½ or 60</p>
-                </div>
+              {/* Primary Milestones */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
+                  {primaryName}'s Milestones
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      401(k) / 403(b) Access Age (Rule of 55)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={config.milestones.four01kAge ?? config.milestones.retireAcctAge ?? 55}
+                      onChange={e => updateMilestone('four01kAge', parseFloat(e.target.value) || 55)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">Employer plan early withdrawal</p>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Social Security Earliest Age
-                  </label>
-                  <input
-                    type="number"
-                    value={config.milestones.ssMinAge}
-                    onChange={e => updateMilestone('ssMinAge', parseFloat(e.target.value) || 0)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                  />
-                  <p className="text-[10px] text-slate-500 mt-0.5">Standard: Age 62</p>
-                </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      IRA / Roth Access Age
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={config.milestones.iraAge ?? config.milestones.retireAcctAge ?? 60}
+                      onChange={e => updateMilestone('iraAge', parseFloat(e.target.value) || 60)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">IRS penalty-free age (e.g. 59.5)</p>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Medicare Start Age
-                  </label>
-                  <input
-                    type="number"
-                    value={config.milestones.medicareAge}
-                    onChange={e => updateMilestone('medicareAge', parseFloat(e.target.value) || 0)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                  />
-                  <p className="text-[10px] text-slate-500 mt-0.5">Standard: Age 65</p>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Social Security Earliest Age
+                    </label>
+                    <input
+                      type="number"
+                      value={config.milestones.ssMinAge}
+                      onChange={e => updateMilestone('ssMinAge', parseFloat(e.target.value) || 62)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">Earliest claim age (e.g. 62)</p>
+                  </div>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Required Minimum Dist. (RMD) Age
-                  </label>
-                  <input
-                    type="number"
-                    value={config.milestones.rmdAge}
-                    onChange={e => updateMilestone('rmdAge', parseFloat(e.target.value) || 0)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                  />
-                  <p className="text-[10px] text-slate-500 mt-0.5">SECURE 2.0: Age 73</p>
+              {/* Spouse Milestones */}
+              {hasSpouse && (
+                <div className="pt-3 border-t border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
+                    {spouseName}'s Milestones
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Spouse 401(k) / 403(b) Access Age
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={config.milestones.spouseFour01kAge ?? config.milestones.four01kAge ?? 55}
+                        onChange={e => updateMilestone('spouseFour01kAge', parseFloat(e.target.value) || 55)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-0.5">Employer plan early withdrawal</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Spouse IRA / Roth Access Age
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={config.milestones.spouseIraAge ?? config.milestones.iraAge ?? 60}
+                        onChange={e => updateMilestone('spouseIraAge', parseFloat(e.target.value) || 60)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-0.5">IRS penalty-free age (e.g. 59.5)</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Spouse Social Security Earliest Age
+                      </label>
+                      <input
+                        type="number"
+                        value={config.milestones.spouseSsMinAge ?? config.milestones.ssMinAge ?? 62}
+                        onChange={e => updateMilestone('spouseSsMinAge', parseFloat(e.target.value) || 62)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-0.5">Earliest claim age (e.g. 62)</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Shared / Statutory Milestones */}
+              <div className="pt-3 border-t border-slate-100">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
+                  Shared Statutory Milestones
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Medicare Start Age
+                    </label>
+                    <input
+                      type="number"
+                      value={config.milestones.medicareAge}
+                      onChange={e => updateMilestone('medicareAge', parseFloat(e.target.value) || 65)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">Standard: Age 65</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Required Minimum Dist. (RMD) Age
+                    </label>
+                    <input
+                      type="number"
+                      value={config.milestones.rmdAge}
+                      onChange={e => updateMilestone('rmdAge', parseFloat(e.target.value) || 73)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">SECURE 2.0: Age 73</p>
+                  </div>
                 </div>
               </div>
             </div>

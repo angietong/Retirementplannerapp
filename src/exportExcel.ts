@@ -38,7 +38,8 @@ export function exportToExcel(
     ['Taxable Income Share %', config.scenario.taxablePct],
     [],
     ['Milestone Ages'],
-    ['401k / IRA Penalty-Free Access Age', config.milestones.retireAcctAge],
+    ['401(k) / 403(b) Access Age (Rule of 55)', config.milestones.four01kAge ?? config.milestones.retireAcctAge ?? 55],
+    ['IRA / Roth Access Age', config.milestones.iraAge ?? config.milestones.retireAcctAge ?? 60],
     ['Social Security Earliest Age', config.milestones.ssMinAge],
     ['Medicare Start Age', config.milestones.medicareAge],
     ['Required Minimum Distribution (RMD) Age', config.milestones.rmdAge],
@@ -69,12 +70,13 @@ export function exportToExcel(
     ['Tax Payment Method', config.rothConversion?.taxPaymentMethod ?? 'outsideBrokerage'],
     [],
     ['Income & Asset Sources (Up to 20 — lower priority withdrawn first)'],
-    ['Source Name', 'Owner', 'Balance ($)', 'Priority', 'Monthly (Y/N)', 'Tax Type', 'Annual Payment ($)', 'Start Age', 'Notes']
+    ['Source Name', 'Account Category', 'Owner', 'Balance ($)', 'Priority', 'Monthly (Y/N)', 'Tax Type', 'Annual Payment ($)', 'Start Age', 'Notes']
   );
 
   config.sources.forEach(s => {
     inputRows.push([
       s.name,
+      s.accountType || 'other',
       s.owner || 'primary',
       s.balance,
       s.priority,
