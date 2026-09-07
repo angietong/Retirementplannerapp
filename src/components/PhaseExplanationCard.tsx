@@ -24,7 +24,11 @@ export const PhaseExplanationCard: React.FC<PhaseExplanationCardProps> = ({ conf
             Phase 0: Retirement Year
           </div>
           <p className="text-slate-600 text-[11px] leading-relaxed">
-            Target retirement date: <span className="font-semibold">{config.scenario.retDate}</span>. Partial salary is earned, with remaining months covered via withdrawals.
+            Target retirement: <span className="font-semibold">{config.scenario.retDate}</span>
+            {config.scenario.hasSpouse && config.scenario.spouseRetDate ? (
+              <span> (Spouse: <span className="font-semibold">{config.scenario.spouseRetDate}</span>)</span>
+            ) : null}
+            . Partial salary is earned, with remaining months covered via withdrawals.
           </p>
         </div>
 

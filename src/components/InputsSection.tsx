@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, ArrowUp, ArrowDown, HelpCircle, Save } from 'lucide-react';
-import { PlannerConfig, IncomeSource, TaxType, MonthlyIndicator } from '../types';
+import { Plus, Trash2, ArrowUp, ArrowDown, Users, User, Heart } from 'lucide-react';
+import { PlannerConfig, IncomeSource, TaxType, MonthlyIndicator, SourceOwner } from '../types';
 
 interface InputsSectionProps {
   config: PlannerConfig;
@@ -9,6 +9,10 @@ interface InputsSectionProps {
 
 export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }) => {
   const [activeTab, setActiveTab] = useState<'sources' | 'scenario' | 'rates' | 'expenses'>('sources');
+
+  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const hasSpouse = Boolean(config.scenario.hasSpouse);
 
   const updateScenario = (key: keyof typeof config.scenario, value: any) => {
     onChange({
@@ -40,7 +44,7 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
     });
   };
 
-  const updateExpenses = (key: keyof typeof config.expenses, value: number) => {
+  const updateExpenses = (key: keyof typeof config.expenses, value: any) => {
     onChange({
       ...config,
       expenses: {
@@ -78,6 +82,7 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
       taxType: 'Income',
       annualPayment: 0,
       startAge: 60,
+      owner: 'primary',
       notes: '',
     };
     onChange({
@@ -119,13 +124,24 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
       {/* Header and Sub-tabs */}
       <div className="p-4 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-slate-900">Scenario & Portfolio Configuration</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-900">Scenario & Portfolio Configuration</h2>
+            {hasSpouse ? (
+              <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 border border-indigo-200">
+                <Users className="w-3 h-3" /> 2-Person Household ({primaryName} & {spouseName})
+              </span>
+            ) : (
+              <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                <User className="w-3 h-3" /> Individual ({primaryName})
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500">
-            Edit financial inputs, milestone ages, rates, and configure up to 20 income/asset accounts.
+            Edit financial inputs, household members, milestone ages, rates, and configure up to 20 income/asset accounts.
           </p>
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-lg text-xs font-medium">
+        <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-lg text-xs font-medium flex-wrap">
           <button
             onClick={() => setActiveTab('sources')}
             className={`px-3 py-1.5 rounded-md transition-colors ${
@@ -144,7 +160,7 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Scenario & Milestones
+            Household & Milestones
           </button>
           <button
             onClick={() => setActiveTab('rates')}
@@ -154,7 +170,7 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Return & Tax Rates
+            Rates & Taxes
           </button>
           <button
             onClick={() => setActiveTab('expenses')}
@@ -170,12 +186,14 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
       </div>
 
       <div className="p-5">
-        {/* Tab 1: Income Sources */}
+        {/* Tab 1: Income & Asset Sources */}
         {activeTab === 'sources' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900">Income & Asset Accounts</h3>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Income & Asset Accounts Table (Up to 20 Sources)
+                </h3>
                 <p className="text-xs text-slate-500">
                   Priority determines liquidation order (lower number tapped first). Non-monthly accounts deplete; monthly accounts provide recurring guaranteed cash flow.
                 </p>
@@ -183,7 +201,7 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
               <button
                 onClick={addSource}
                 disabled={config.sources.length >= 20}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-md transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-md transition-colors shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add Income Source
@@ -196,6 +214,7 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                   <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
                     <th className="py-2.5 px-3 w-14">Order</th>
                     <th className="py-2.5 px-3">Account / Source Name</th>
+                    {hasSpouse && <th className="py-2.5 px-3">Owner</th>}
                     <th className="py-2.5 px-3 text-right">Initial Balance ($)</th>
                     <th className="py-2.5 px-3">Type</th>
                     <th className="py-2.5 px-3">Tax Treatment</th>
@@ -239,6 +258,19 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                           className="w-full font-medium text-slate-900 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-emerald-500"
                         />
                       </td>
+                      {hasSpouse && (
+                        <td className="py-2 px-3">
+                          <select
+                            value={s.owner || 'primary'}
+                            onChange={e => updateSource(s.id, { owner: e.target.value as SourceOwner })}
+                            className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-800 focus:outline-emerald-500 bg-white"
+                          >
+                            <option value="primary">{primaryName} (Primary)</option>
+                            <option value="spouse">{spouseName} (Spouse)</option>
+                            <option value="joint">Joint Household</option>
+                          </select>
+                        </td>
+                      )}
                       <td className="py-2 px-3 text-right">
                         <input
                           type="number"
@@ -314,59 +346,98 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
 
         {/* Tab 2: Scenario Parameters & Milestone Ages */}
         {activeTab === 'scenario' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-2">
-                Scenario Parameters
-              </h3>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">User Name</label>
-                <input
-                  type="text"
-                  value={config.scenario.userName}
-                  onChange={e => updateScenario('userName', e.target.value)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-6">
+            {/* 2-Person Household Toggle Banner */}
+            <div className="p-4 bg-indigo-50/70 border border-indigo-200 rounded-xl flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                  <Users className="w-5 h-5" />
+                </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Birth Date</label>
+                  <h4 className="text-sm font-bold text-indigo-950">2-Person Household Projection (With Spouse)</h4>
+                  <p className="text-xs text-indigo-700">
+                    Model both spouses with individual birth dates, retirement ages, salaries, and account ownership.
+                  </p>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hasSpouse}
+                  onChange={e => updateScenario('hasSpouse', e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                <span className="ml-2 text-xs font-semibold text-slate-800">
+                  {hasSpouse ? 'Enabled' : 'Single Person'}
+                </span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Primary User Section */}
+              <div className="space-y-4 p-4 rounded-xl border border-slate-200 bg-white">
+                <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                  <User className="w-4 h-4 text-emerald-600" />
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Primary Household Member ({primaryName})
+                  </h3>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Full Name</label>
                   <input
-                    type="date"
-                    value={config.scenario.birthDate}
-                    onChange={e => updateScenario('birthDate', e.target.value)}
+                    type="text"
+                    value={config.scenario.userName}
+                    onChange={e => updateScenario('userName', e.target.value)}
                     className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Target Retirement Date</label>
-                  <input
-                    type="date"
-                    value={config.scenario.retDate}
-                    onChange={e => updateScenario('retDate', e.target.value)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                  />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Birth Date</label>
+                    <input
+                      type="date"
+                      value={config.scenario.birthDate}
+                      onChange={e => updateScenario('birthDate', e.target.value)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Target Retirement Date</label>
+                    <input
+                      type="date"
+                      value={config.scenario.retDate}
+                      onChange={e => updateScenario('retDate', e.target.value)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Retirement Year Salary ($)
-                </label>
-                <input
-                  type="number"
-                  value={config.scenario.retSalary}
-                  onChange={e => updateScenario('retSalary', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                />
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Prorated in Phase 0 based on the fraction of the year worked before target date.
-                </p>
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Retirement Salary ($)
+                    </label>
+                    <input
+                      type="number"
+                      value={config.scenario.retSalary}
+                      onChange={e => updateScenario('retSalary', parseFloat(e.target.value) || 0)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Life Expectancy Age</label>
+                    <input
+                      type="number"
+                      value={config.scenario.lifeExpAge}
+                      onChange={e => updateScenario('lifeExpAge', parseFloat(e.target.value) || 0)}
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                    />
+                  </div>
+                </div>
 
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">
                     Taxable Income % (Withdrawal Share)
@@ -380,74 +451,157 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                     onChange={e => updateScenario('taxablePct', parseFloat(e.target.value) || 0)}
                     className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Life Expectancy Age</label>
-                  <input
-                    type="number"
-                    value={config.scenario.lifeExpAge}
-                    onChange={e => updateScenario('lifeExpAge', parseFloat(e.target.value) || 0)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                  />
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Portion of asset withdrawals subject to ordinary income vs capital gains / tax-free.
+                  </p>
                 </div>
               </div>
+
+              {/* Spouse Section */}
+              {hasSpouse ? (
+                <div className="space-y-4 p-4 rounded-xl border border-indigo-200 bg-indigo-50/20">
+                  <div className="flex items-center gap-2 border-b border-indigo-200 pb-2">
+                    <Heart className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-sm font-bold text-indigo-950">
+                      Spouse Details ({spouseName})
+                    </h3>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Spouse Name</label>
+                    <input
+                      type="text"
+                      value={config.scenario.spouseName || ''}
+                      onChange={e => updateScenario('spouseName', e.target.value)}
+                      placeholder="e.g. Jane Doe"
+                      className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500 bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Spouse Birth Date</label>
+                      <input
+                        type="date"
+                        value={config.scenario.spouseBirthDate || ''}
+                        onChange={e => updateScenario('spouseBirthDate', e.target.value)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Spouse Retirement Date</label>
+                      <input
+                        type="date"
+                        value={config.scenario.spouseRetDate || ''}
+                        onChange={e => updateScenario('spouseRetDate', e.target.value)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Spouse Salary ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={config.scenario.spouseRetSalary || 0}
+                        onChange={e => updateScenario('spouseRetSalary', parseFloat(e.target.value) || 0)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Spouse Life Expectancy</label>
+                      <input
+                        type="number"
+                        value={config.scenario.spouseLifeExpAge || 92}
+                        onChange={e => updateScenario('spouseLifeExpAge', parseFloat(e.target.value) || 0)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-indigo-700 mt-2 bg-indigo-50 p-2.5 rounded-lg">
+                    💡 When enabled, spouse accounts unlock at their specific start ages, and household sustainability protects both spouses through their life expectancies.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center p-8 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-center">
+                  <Users className="w-10 h-10 text-slate-400 mb-2" />
+                  <h4 className="text-sm font-semibold text-slate-700">Single Person Plan</h4>
+                  <p className="text-xs text-slate-500 max-w-xs mt-1">
+                    Toggle "2-Person Household" above to add a spouse with separate retirement dates, incomes, and account accessibility.
+                  </p>
+                  <button
+                    onClick={() => updateScenario('hasSpouse', true)}
+                    className="mt-3 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-medium transition-colors"
+                  >
+                    Enable Spouse Planning
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="space-y-4">
+            {/* Milestone Ages */}
+            <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-4">
               <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-2">
-                Milestone Ages
+                Milestone Ages & Distribution Rules
               </h3>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  401k / IRA Penalty-Free Withdrawal Age
-                </label>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={config.milestones.retireAcctAge}
-                  onChange={e => updateMilestone('retireAcctAge', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                />
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Unlocks tax-deferred account withdrawals (standard IRS rule: age 59½ or 60).
-                </p>
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    401k / IRA Access Age
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={config.milestones.retireAcctAge}
+                    onChange={e => updateMilestone('retireAcctAge', parseFloat(e.target.value) || 0)}
+                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-0.5">IRS Rule 59½ or 60</p>
+                </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Social Security Earliest Age
-                </label>
-                <input
-                  type="number"
-                  value={config.milestones.ssMinAge}
-                  onChange={e => updateMilestone('ssMinAge', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                />
-              </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Social Security Earliest Age
+                  </label>
+                  <input
+                    type="number"
+                    value={config.milestones.ssMinAge}
+                    onChange={e => updateMilestone('ssMinAge', parseFloat(e.target.value) || 0)}
+                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-0.5">Standard: Age 62</p>
+                </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Medicare Start Age
-                </label>
-                <input
-                  type="number"
-                  value={config.milestones.medicareAge}
-                  onChange={e => updateMilestone('medicareAge', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                />
-              </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Medicare Start Age
+                  </label>
+                  <input
+                    type="number"
+                    value={config.milestones.medicareAge}
+                    onChange={e => updateMilestone('medicareAge', parseFloat(e.target.value) || 0)}
+                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-0.5">Standard: Age 65</p>
+                </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Required Minimum Distribution (RMD) Age
-                </label>
-                <input
-                  type="number"
-                  value={config.milestones.rmdAge}
-                  onChange={e => updateMilestone('rmdAge', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                />
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Required Minimum Dist. (RMD) Age
+                  </label>
+                  <input
+                    type="number"
+                    value={config.milestones.rmdAge}
+                    onChange={e => updateMilestone('rmdAge', parseFloat(e.target.value) || 0)}
+                    className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-0.5">SECURE 2.0: Age 73</p>
+                </div>
               </div>
             </div>
           </div>
@@ -472,14 +626,11 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                   onChange={e => updateRates('investRate', parseFloat(e.target.value) || 0)}
                   className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
                 />
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Nominal annual compounding growth applied to remaining depleting account balances. (e.g. 0.06 = 6.0%)
-                </p>
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Annual Inflation Rate (%)
+                  Annual General Inflation Rate (%)
                 </label>
                 <input
                   type="number"
@@ -488,20 +639,35 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                   onChange={e => updateRates('inflationRate', parseFloat(e.target.value) || 0)}
                   className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
                 />
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Annual rate at which monthly living and medical expenses escalate in future dollars. (e.g. 0.025 = 2.5%)
+                <p className="text-[10px] text-slate-500 mt-0.5">Applies to day-to-day living expenses (standard 2.5%)</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
+                  <span>Medical / Healthcare Inflation Rate (%)</span>
+                  <span className="text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded font-semibold">Decoupled</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.005"
+                  value={config.rates.medicalInflationRate ?? 0.045}
+                  onChange={e => updateRates('medicalInflationRate', parseFloat(e.target.value) || 0)}
+                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                />
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  Decoupled escalation: healthcare historically runs at 4.5% vs 2.5% CPI.
                 </p>
               </div>
             </div>
 
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-2">
-                Tax Toggles & Brackets
+                Tax Brackets & Rates
               </h3>
 
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Target Federal Tax Bracket (%)
+                  Federal Tax Bracket (%)
                 </label>
                 <input
                   type="number"
@@ -557,13 +723,13 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
 
         {/* Tab 4: Monthly Expenses */}
         {activeTab === 'expenses' && (
-          <div className="max-w-xl space-y-4">
+          <div className="max-w-2xl space-y-5">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">
                 Monthly Expenses (Base Year, Today's Dollars)
               </h3>
-              <p className="text-xs text-slate-500">
-                These monthly figures are annualized (x 12) and grown each year by the inflation rate.
+              <p className="text-xs text-slate-500 mt-0.5">
+                Living expenses grow at the general inflation rate ({((config.rates.inflationRate || 0.025) * 100).toFixed(1)}%), while healthcare expenses grow at the decoupled medical inflation rate ({(((config.rates.medicalInflationRate ?? 0.045)) * 100).toFixed(1)}%).
               </p>
             </div>
 
@@ -577,40 +743,116 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                 onChange={e => updateExpenses('expDaily', parseFloat(e.target.value) || 0)}
                 className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
               />
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                Housing, food, utilities, leisure, travel, and non-medical living costs.
+              </p>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                Medical Premium ($ / month)
-              </label>
-              <input
-                type="number"
-                value={config.expenses.expMedPremium}
-                onChange={e => updateExpenses('expMedPremium', parseFloat(e.target.value) || 0)}
-                className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-              />
-            </div>
+            {/* Medical Expenses Section */}
+            <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/60 space-y-4">
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Pre-Medicare Medical Expenses (Before Age 65)
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Private insurance, ACA marketplace coverage, or COBRA.
+                </p>
+              </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                Medical Out-of-pocket Expenses ($ / month)
-              </label>
-              <input
-                type="number"
-                value={config.expenses.expMedOop}
-                onChange={e => updateExpenses('expMedOop', parseFloat(e.target.value) || 0)}
-                className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Medical Premium ($ / month)
+                  </label>
+                  <input
+                    type="number"
+                    value={config.expenses.expMedPremium}
+                    onChange={e => updateExpenses('expMedPremium', parseFloat(e.target.value) || 0)}
+                    className="w-full bg-white border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Medical Out-of-pocket ($ / month)
+                  </label>
+                  <input
+                    type="number"
+                    value={config.expenses.expMedOop}
+                    onChange={e => updateExpenses('expMedOop', parseFloat(e.target.value) || 0)}
+                    className="w-full bg-white border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Post-Medicare Milestone Toggle */}
+              <div className="pt-3 border-t border-slate-200">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={config.expenses.hasMedicarePostExp ?? true}
+                    onChange={e => updateExpenses('hasMedicarePostExp', e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-slate-300 mt-0.5"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-800">
+                      Specify Different Medical Expenses After Medicare Milestone (Age 65+)
+                    </span>
+                    <p className="text-[11px] text-slate-500">
+                      When reaching Age 65, medical expenses transition from private coverage to Medicare Part B/D + Medigap Supplement.
+                    </p>
+                  </div>
+                </label>
+
+                {(config.expenses.hasMedicarePostExp ?? true) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 bg-white p-3 rounded-lg border border-slate-200">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Post-Medicare Premium ($ / mo)
+                      </label>
+                      <input
+                        type="number"
+                        value={config.expenses.expMedPremiumPost ?? 320}
+                        onChange={e => updateExpenses('expMedPremiumPost', parseFloat(e.target.value) || 0)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                        placeholder="e.g. 320"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-0.5">Medicare Part B standard premium + Part D / Medigap</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Post-Medicare Out-of-pocket ($ / mo)
+                      </label>
+                      <input
+                        type="number"
+                        value={config.expenses.expMedOopPost ?? 180}
+                        onChange={e => updateExpenses('expMedOopPost', parseFloat(e.target.value) || 0)}
+                        className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+                        placeholder="e.g. 180"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-0.5">Copays, dental, vision, hearing out-of-pocket</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-              <span className="font-semibold text-slate-800">Total Base Annual Expense: </span>
+              <span className="font-semibold text-slate-800">Initial Base Annual Expense: </span>
               <span className="font-mono font-bold text-emerald-700">
                 {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
                   12 * (config.expenses.expDaily + config.expenses.expMedPremium + config.expenses.expMedOop)
                 )}
                 /year
               </span>
+              {(config.expenses.hasMedicarePostExp ?? true) && (
+                <span className="text-slate-500 ml-2">
+                  (shifts to {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
+                    12 * (config.expenses.expDaily + (config.expenses.expMedPremiumPost ?? 320) + (config.expenses.expMedOopPost ?? 180))
+                  )}/yr in today's dollars at Medicare Age 65)
+                </span>
+              )}
             </div>
           </div>
         )}

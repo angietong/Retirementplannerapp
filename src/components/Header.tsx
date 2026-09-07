@@ -1,12 +1,12 @@
 import React from 'react';
-import { Download, RotateCcw, ShieldCheck, Calendar, DollarSign, BarChart3, Sliders, TableProperties } from 'lucide-react';
+import { Download, RotateCcw, ShieldCheck, Calendar, DollarSign, BarChart3, Sliders, TableProperties, Sparkles } from 'lucide-react';
 import { PlannerConfig, PlanSummary } from '../types';
 
 interface HeaderProps {
   config: PlannerConfig;
   summary: PlanSummary;
-  activeTab: 'overview' | 'charts' | 'table' | 'inputs';
-  setActiveTab: (tab: 'overview' | 'charts' | 'table' | 'inputs') => void;
+  activeTab: 'overview' | 'charts' | 'table' | 'roth' | 'inputs';
+  setActiveTab: (tab: 'overview' | 'charts' | 'table' | 'roth' | 'inputs') => void;
   onReset: () => void;
   onExport: () => void;
 }
@@ -33,7 +33,17 @@ export const Header: React.FC<HeaderProps> = ({
                   Retirement Financial Planner
                 </h1>
                 <p className="text-xs text-slate-500 font-medium">
-                  Plan for <span className="text-slate-800 font-semibold">{config.scenario.userName}</span> &bull; Target Retirement: {config.scenario.retDate}
+                  Plan for{' '}
+                  <span className="text-slate-800 font-semibold">
+                    {config.scenario.userName}
+                    {config.scenario.hasSpouse && config.scenario.spouseName
+                      ? ` & ${config.scenario.spouseName}`
+                      : ''}
+                  </span>{' '}
+                  &bull; Target Retirement: {config.scenario.retDate}
+                  {config.scenario.hasSpouse && config.scenario.spouseRetDate
+                    ? ` (Spouse: ${config.scenario.spouseRetDate})`
+                    : ''}
                 </p>
               </div>
             </div>
@@ -93,6 +103,20 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <TableProperties className="w-4 h-4" />
             Year-by-Year Simulation Table
+          </button>
+          <button
+            onClick={() => setActiveTab('roth')}
+            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
+              activeTab === 'roth'
+                ? 'border-purple-600 text-purple-700 font-semibold'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-purple-600" />
+            Roth Conversion Simulator
+            {config.rothConversion?.enabled && (
+              <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse"></span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('inputs')}

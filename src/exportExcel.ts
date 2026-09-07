@@ -6,48 +6,76 @@ export function exportToExcel(
   results: { years: YearSimulationResult[]; summary: PlanSummary }
 ) {
   const wb = XLSX.utils.book_new();
+  const hasSpouse = Boolean(config.scenario.hasSpouse);
+  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
 
   // 1. Inputs Tab
   const inputRows: (string | number | boolean)[][] = [
     ['Retirement Financial Planner — Inputs'],
-    ['User-editable parameters and scenario configuration'],
+    ['User-editable parameters, assumptions, and household configuration'],
     [],
-    ['Scenario Parameters'],
-    ['User name', config.scenario.userName],
-    ['Birth date', config.scenario.birthDate],
-    ['Retirement year salary', config.scenario.retSalary],
-    ['Target retirement date', config.scenario.retDate],
-    ['Social Security start date', config.scenario.ssStartDate],
-    ['Pension start date', config.scenario.pensionStartDate],
-    ['Taxable income percentage', config.scenario.taxablePct],
-    ['Life expectancy age', config.scenario.lifeExpAge],
+    ['Household Scenario Parameters'],
+    ['Household Type', hasSpouse ? '2-Person Household (With Spouse)' : 'Single Person'],
+    ['Primary User Name', config.scenario.userName],
+    ['Primary Birth Date', config.scenario.birthDate],
+    ['Primary Retirement Date', config.scenario.retDate],
+    ['Primary Retirement Salary', config.scenario.retSalary],
+    ['Primary Life Expectancy Age', config.scenario.lifeExpAge],
+  ];
+
+  if (hasSpouse) {
+    inputRows.push(
+      ['Spouse Name', config.scenario.spouseName || ''],
+      ['Spouse Birth Date', config.scenario.spouseBirthDate || ''],
+      ['Spouse Retirement Date', config.scenario.spouseRetDate || ''],
+      ['Spouse Retirement Salary', config.scenario.spouseRetSalary || 0],
+      ['Spouse Life Expectancy Age', config.scenario.spouseLifeExpAge || 92]
+    );
+  }
+
+  inputRows.push(
+    ['Taxable Income Share %', config.scenario.taxablePct],
     [],
     ['Milestone Ages'],
-    ['RMD age', config.milestones.rmdAge],
-    ['Medicare start age', config.milestones.medicareAge],
-    ['Social Security min start age', config.milestones.ssMinAge],
-    ['401k / IRA withdrawal age', config.milestones.retireAcctAge],
+    ['401k / IRA Penalty-Free Access Age', config.milestones.retireAcctAge],
+    ['Social Security Earliest Age', config.milestones.ssMinAge],
+    ['Medicare Start Age', config.milestones.medicareAge],
+    ['Required Minimum Distribution (RMD) Age', config.milestones.rmdAge],
     [],
     ['Rate Assumptions'],
-    ['Annual investment rate of return', config.rates.investRate],
-    ['Annual inflation rate', config.rates.inflationRate],
-    ['Target federal tax bracket', config.rates.fedBracket],
-    ['State tax rate', config.rates.stateRate],
-    ['Capital gain tax rate', config.rates.capgainRate],
-    ['Capital-gain share of taxable income', config.rates.capgainPct],
+    ['Annual Investment Rate of Return (%)', config.rates.investRate],
+    ['Annual General Inflation Rate (%)', config.rates.inflationRate],
+    ['Annual Medical Inflation Rate (%)', config.rates.medicalInflationRate ?? 0.045],
+    ['Federal Tax Bracket (%)', config.rates.fedBracket],
+    ['State Tax Rate (%)', config.rates.stateRate],
+    ['Capital Gain Tax Rate (%)', config.rates.capgainRate],
+    ['Capital Gain Share of Taxable (%)', config.rates.capgainPct],
     [],
-    ['Monthly Expenses (today\'s dollars)'],
-    ['Day-to-day after-tax expense', config.expenses.expDaily],
-    ['Medical premium', config.expenses.expMedPremium],
-    ['Medical out-of-pocket expense', config.expenses.expMedOop],
+    ['Monthly Expenses (Today\'s Base Dollars)'],
+    ['Day-to-day Living Expense ($/mo)', config.expenses.expDaily],
+    ['Pre-Medicare Medical Premium ($/mo)', config.expenses.expMedPremium],
+    ['Pre-Medicare Medical OOP ($/mo)', config.expenses.expMedOop],
+    ['Different Post-Medicare Expenses Enabled?', config.expenses.hasMedicarePostExp ?? true],
+    ['Post-Medicare Medical Premium ($/mo)', config.expenses.expMedPremiumPost ?? 320],
+    ['Post-Medicare Medical OOP ($/mo)', config.expenses.expMedOopPost ?? 180],
     [],
-    ['Income Sources (up to 20 — lower priority withdrawn first)'],
-    ['Source name / type', 'Balance', 'Priority', 'Monthly (Y/N)', 'Tax type', 'Annual payment', 'Start age', 'Notes']
-  ];
+    ['Systematic Roth Conversion Strategy'],
+    ['Roth Conversion Active?', config.rothConversion?.enabled ?? false],
+    ['Conversion Start Age', config.rothConversion?.startAge ?? 60],
+    ['Conversion End Age', config.rothConversion?.endAge ?? 72],
+    ['Target Bracket Dollar Ceiling', config.rothConversion?.bracketRoomMaxIncome ?? 201050],
+    ['Max Annual Conversion Cap', config.rothConversion?.annualCap ?? 50000],
+    ['Tax Payment Method', config.rothConversion?.taxPaymentMethod ?? 'outsideBrokerage'],
+    [],
+    ['Income & Asset Sources (Up to 20 — lower priority withdrawn first)'],
+    ['Source Name', 'Owner', 'Balance ($)', 'Priority', 'Monthly (Y/N)', 'Tax Type', 'Annual Payment ($)', 'Start Age', 'Notes']
+  );
 
   config.sources.forEach(s => {
     inputRows.push([
       s.name,
+      s.owner || 'primary',
       s.balance,
       s.priority,
       s.monthly,
@@ -62,50 +90,72 @@ export function exportToExcel(
   XLSX.utils.book_append_sheet(wb, wsInputs, 'Inputs');
 
   // 2. Plan Tab
+  const planHeaders: string[] = [
+    'Year',
+    hasSpouse ? `${primaryName} Age` : 'Age',
+    ...(hasSpouse ? [`${spouseName} Age`] : []),
+    'Phase',
+    'Salary',
+    'Guaranteed Income',
+    'Withdrawals',
+    'Total Expenses',
+    'General Living Expenses',
+    'Medical Expenses',
+    'Medicare Active',
+    'IRS RMD Amount',
+    'IRS Divisor',
+    'RMD Surplus Reinvested',
+    'Roth Converted',
+    'Roth Conv. Tax',
+    'Federal Tax',
+    'State Tax',
+    'Capital Gain Tax',
+    'Total Tax',
+    'Combined End Balance',
+    'Depleted?'
+  ];
+
   const planRows: (string | number)[][] = [
     ['Retirement Financial Plan'],
-    [`Plan for: ${config.scenario.userName}`],
+    [`Household: ${config.scenario.userName}${hasSpouse ? ` & ${config.scenario.spouseName}` : ''}`],
     [],
-    ['Key Results'],
-    ['Funds run out (year)', results.summary.fundsRunOutYear ?? 'Not depleted within horizon'],
-    ['Years funding lasts', results.summary.yearsFundingLasts],
-    ['Starting combined balance', results.summary.startingCombinedBalance],
-    ['Total taxes projected', results.summary.totalTaxesPaid],
-    ['Total withdrawals projected', results.summary.totalWithdrawals],
+    ['Key Results Summary'],
+    ['Funds Run Out Year', results.summary.fundsRunOutYear ?? 'Not depleted within horizon'],
+    ['Years Funding Lasts', results.summary.yearsFundingLasts],
+    ['Starting Combined Balance', results.summary.startingCombinedBalance],
+    ['Ending Combined Balance', results.summary.finalBalance],
+    ['Total Taxes Projected', results.summary.totalTaxesPaid],
+    ['Total Withdrawals Projected', results.summary.totalWithdrawals],
     [],
-    [
-      'Year',
-      'Age',
-      'Phase',
-      'Salary',
-      'Guaranteed Income',
-      'Withdrawals',
-      'Expenses',
-      'Federal Tax',
-      'State Tax',
-      'Capital Gain Tax',
-      'Total Tax',
-      'Combined Balance',
-      'Depleted?'
-    ]
+    planHeaders
   ];
 
   results.years.forEach(y => {
-    planRows.push([
+    const row: (string | number)[] = [
       y.calYear,
-      y.age,
+      parseFloat(y.age.toFixed(1)),
+      ...(hasSpouse ? [y.spouseAge !== undefined ? parseFloat(y.spouseAge.toFixed(1)) : '—'] : []),
       y.phase,
       Math.round(y.salary),
       Math.round(y.guarTotal),
       Math.round(y.wdTotal),
       Math.round(y.expenses),
+      Math.round(y.generalExpenses || 0),
+      Math.round(y.medicalExpenses || 0),
+      y.isMedicareActive ? 'YES' : 'NO',
+      Math.round(y.rmdTotal || 0),
+      y.rmdDivisor || 0,
+      Math.round(y.rmdSurplusReinvested || 0),
+      Math.round(y.rothConvertedAmount || 0),
+      Math.round(y.rothConversionTax || 0),
       Math.round(y.fedTax),
       Math.round(y.stateTax),
       Math.round(y.capGainTax),
       Math.round(y.totalTax),
       Math.round(y.combEndBal),
       y.depleted ? 'YES' : ''
-    ]);
+    ];
+    planRows.push(row);
   });
 
   const wsPlan = XLSX.utils.aoa_to_sheet(planRows);
@@ -115,7 +165,10 @@ export function exportToExcel(
   const chartDataHeaders = [
     'Cal Year',
     ...config.sources.map(s => `Income: ${s.name}`),
-    'Expenses',
+    'General Expenses',
+    'Medical Expenses',
+    'Total Expenses',
+    'RMD Mandated',
     'Federal Tax',
     'State Tax',
     'Capital Gain Tax',
@@ -129,7 +182,10 @@ export function exportToExcel(
     const row: (string | number)[] = [
       y.calYear,
       ...config.sources.map(s => Math.round(y.incomeBySource[s.id] || 0)),
+      Math.round(y.generalExpenses || 0),
+      Math.round(y.medicalExpenses || 0),
       Math.round(y.expenses),
+      Math.round(y.rmdTotal || 0),
       Math.round(y.fedTax),
       Math.round(y.stateTax),
       Math.round(y.capGainTax),
@@ -143,5 +199,6 @@ export function exportToExcel(
   XLSX.utils.book_append_sheet(wb, wsChartData, 'ChartData');
 
   // Trigger download
-  XLSX.writeFile(wb, `${config.scenario.userName.replace(/\s+/g, '_')}_Retirement_Plan.xlsx`);
+  const cleanName = config.scenario.userName.replace(/\s+/g, '_');
+  XLSX.writeFile(wb, `${cleanName}_Retirement_Plan.xlsx`);
 }

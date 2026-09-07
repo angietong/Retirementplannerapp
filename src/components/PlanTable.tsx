@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { YearSimulationResult, PlannerConfig } from '../types';
+import { YearSimulationResult, PlannerConfig, DollarDisplayMode } from '../types';
 
 interface PlanTableProps {
   years: YearSimulationResult[];
   config: PlannerConfig;
+  dollarMode?: DollarDisplayMode;
+  onDollarModeChange?: (mode: DollarDisplayMode) => void;
 }
 
 const formatCurrency = (amount: number) => {
@@ -15,12 +17,26 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
-export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
+export const PlanTable: React.FC<PlanTableProps> = ({
+  years,
+  config,
+  dollarMode = 'nominal',
+  onDollarModeChange,
+}) => {
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [filterPhase, setFilterPhase] = useState<string>('all');
 
+  const hasSpouse = Boolean(config.scenario.hasSpouse);
+  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+
   const toggleExpand = (yr: number) => {
     setExpandedYear(expandedYear === yr ? null : yr);
+  };
+
+  const getDeflator = (yrIndex: number) => {
+    if (dollarMode === 'nominal') return 1;
+    return Math.pow(1 + config.rates.inflationRate, yrIndex);
   };
 
   const filteredYears = years.filter(y => {
@@ -33,13 +49,42 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
     <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
       <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/70">
         <div>
-          <h2 className="text-base font-bold text-slate-900">Year-by-Year Simulation Table</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-900">Year-by-Year Simulation Table</h2>
+            <span className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-medium">
+              {dollarMode === 'real' ? "Real ($) Today's Value" : 'Nominal ($) Future Dollars'}
+            </span>
+          </div>
           <p className="text-xs text-slate-500">
-            Interactive breakdown matching the Excel Plan worksheet formulas & priority cascade.
+            Interactive breakdown matching the Excel Plan worksheet formulas & liquidation priority cascade.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          {/* Dollar Mode Toggle */}
+          <div className="inline-flex items-center bg-white p-0.5 rounded-lg border border-slate-300 shadow-2xs">
+            <button
+              onClick={() => onDollarModeChange && onDollarModeChange('nominal')}
+              className={`px-2 py-1 rounded text-xs transition-all ${
+                dollarMode === 'nominal'
+                  ? 'bg-slate-800 text-white font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Nominal $
+            </button>
+            <button
+              onClick={() => onDollarModeChange && onDollarModeChange('real')}
+              className={`px-2 py-1 rounded text-xs transition-all ${
+                dollarMode === 'real'
+                  ? 'bg-emerald-700 text-white font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Real (Today's $)
+            </button>
+          </div>
+
           <label className="text-slate-600 font-medium">Filter Phase:</label>
           <select
             value={filterPhase}
@@ -64,7 +109,8 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
             <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
               <th className="py-3 px-3 w-8"></th>
               <th className="py-3 px-3">Year</th>
-              <th className="py-3 px-3">Age</th>
+              <th className="py-3 px-3">{hasSpouse ? `${primaryName} Age` : 'Age'}</th>
+              {hasSpouse && <th className="py-3 px-3">{spouseName} Age</th>}
               <th className="py-3 px-3">Phase</th>
               <th className="py-3 px-3 text-right">Salary</th>
               <th className="py-3 px-3 text-right">Guar. Income</th>
@@ -81,6 +127,18 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
           <tbody className="divide-y divide-slate-100 font-mono">
             {filteredYears.map(y => {
               const isExpanded = expandedYear === y.yr;
+              const deflator = getDeflator(y.yr);
+
+              const salaryAdj = y.salary / deflator;
+              const guarAdj = y.guarTotal / deflator;
+              const wdAdj = y.wdTotal / deflator;
+              const expAdj = y.expenses / deflator;
+              const fedTaxAdj = y.fedTax / deflator;
+              const stateTaxAdj = y.stateTax / deflator;
+              const capGainTaxAdj = y.capGainTax / deflator;
+              const totalTaxAdj = y.totalTax / deflator;
+              const endBalAdj = y.combEndBal / deflator;
+
               return (
                 <React.Fragment key={y.yr}>
                   <tr
@@ -102,6 +160,11 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
                     </td>
                     <td className="py-2.5 px-3 font-semibold text-slate-900 font-sans">{y.calYear}</td>
                     <td className="py-2.5 px-3 text-slate-600 font-sans">{y.age.toFixed(1)}</td>
+                    {hasSpouse && (
+                      <td className="py-2.5 px-3 text-slate-600 font-sans">
+                        {y.spouseAge !== undefined ? y.spouseAge.toFixed(1) : '—'}
+                      </td>
+                    )}
                     <td className="py-2.5 px-3 font-sans">
                       <span
                         className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
@@ -118,35 +181,50 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
                       </span>
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-600">
-                      {y.salary > 0 ? formatCurrency(y.salary) : '—'}
+                      {salaryAdj > 0 ? formatCurrency(salaryAdj) : '—'}
                     </td>
                     <td className="py-2.5 px-3 text-right text-emerald-700">
-                      {y.guarTotal > 0 ? formatCurrency(y.guarTotal) : '—'}
+                      {guarAdj > 0 ? formatCurrency(guarAdj) : '—'}
                     </td>
                     <td className="py-2.5 px-3 text-right text-indigo-700 font-medium">
-                      {formatCurrency(y.wdTotal)}
+                      <div>{formatCurrency(wdAdj)}</div>
+                      {y.rmdTotal !== undefined && y.rmdTotal > 0 && (
+                        <div className="text-[10px] font-sans font-medium text-amber-800 bg-amber-50 rounded px-1 inline-block mt-0.5" title={`Mandated IRS RMD: ${formatCurrency(y.rmdTotal / deflator)}`}>
+                          RMD: {formatCurrency(y.rmdTotal / deflator)}
+                        </div>
+                      )}
+                      {y.rothConvertedAmount !== undefined && y.rothConvertedAmount > 0 && (
+                        <div className="text-[10px] font-sans font-medium text-purple-800 bg-purple-50 rounded px-1 inline-block mt-0.5 ml-1" title={`Systematic Roth Conversion: ${formatCurrency(y.rothConvertedAmount / deflator)}`}>
+                          Roth: {formatCurrency(y.rothConvertedAmount / deflator)}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-900">
-                      {formatCurrency(y.expenses)}
+                      <div>{formatCurrency(expAdj)}</div>
+                      {y.medicalExpenses !== undefined && (
+                        <div className="text-[10px] font-sans text-slate-400" title={`General: ${formatCurrency((y.generalExpenses || 0) / deflator)} | Healthcare: ${formatCurrency(y.medicalExpenses / deflator)}`}>
+                          Med: {formatCurrency(y.medicalExpenses / deflator)}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-600">
-                      {formatCurrency(y.fedTax)}
+                      {formatCurrency(fedTaxAdj)}
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-600">
-                      {formatCurrency(y.stateTax)}
+                      {formatCurrency(stateTaxAdj)}
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-600">
-                      {formatCurrency(y.capGainTax)}
+                      {formatCurrency(capGainTaxAdj)}
                     </td>
                     <td className="py-2.5 px-3 text-right font-medium text-slate-800">
-                      {formatCurrency(y.totalTax)}
+                      {formatCurrency(totalTaxAdj)}
                     </td>
                     <td
                       className={`py-2.5 px-3 text-right font-bold ${
                         y.combEndBal <= 0 ? 'text-red-600' : 'text-slate-900'
                       }`}
                     >
-                      {formatCurrency(y.combEndBal)}
+                      {formatCurrency(endBalAdj)}
                     </td>
                     <td className="py-2.5 px-3 text-center font-sans">
                       {y.depleted ? (
@@ -166,15 +244,53 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
                   {/* Expanded Detail Drawer */}
                   {isExpanded && (
                     <tr className="bg-slate-50 font-sans border-b border-slate-200">
-                      <td colSpan={14} className="p-4">
+                      <td colSpan={hasSpouse ? 15 : 14} className="p-4">
                         <div className="text-xs space-y-3">
                           <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                             <span className="font-bold text-slate-800">
-                              Year {y.calYear} (Age {y.age.toFixed(1)}) — Detailed Account Liquidation Cascade
+                              Year {y.calYear} ({primaryName}: Age {y.age.toFixed(1)}
+                              {hasSpouse && y.spouseAge !== undefined ? ` • ${spouseName}: Age ${y.spouseAge.toFixed(1)}` : ''}) — Detailed Account Liquidation Cascade
                             </span>
                             <span className="text-slate-500">
-                              Taxable Income Target: {formatCurrency(y.taxTarget)} &bull; Non-Taxable Target: {formatCurrency(y.nonTaxTarget)}
+                              Taxable Income Target: {formatCurrency(y.taxTarget / deflator)} &bull; Non-Taxable Target: {formatCurrency(y.nonTaxTarget / deflator)}
                             </span>
+                          </div>
+
+                          {/* Decoupled Expenses and RMD Surplus Banner */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block">Decoupled Expenses</span>
+                              <div className="text-xs text-slate-700 mt-0.5 space-y-0.5">
+                                <div>General Living: <span className="font-semibold text-slate-900">{formatCurrency((y.generalExpenses || 0) / deflator)}</span></div>
+                                <div>Healthcare: <span className="font-semibold text-purple-700">{formatCurrency((y.medicalExpenses || 0) / deflator)}</span> {y.isMedicareActive ? '(Medicare Active)' : '(Pre-Medicare)'}</div>
+                              </div>
+                            </div>
+
+                            {y.rmdTotal !== undefined && y.rmdTotal > 0 && (
+                              <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200">
+                                <span className="text-[10px] uppercase font-bold text-amber-800 block">IRS SECURE 2.0 RMD (Age 73+)</span>
+                                <div className="text-xs text-amber-900 mt-0.5 space-y-0.5">
+                                  <div>Mandated RMD: <span className="font-bold">{formatCurrency(y.rmdTotal / deflator)}</span> (Divisor: {y.rmdDivisor})</div>
+                                  {y.rmdSurplusGross !== undefined && y.rmdSurplusGross > 0 ? (
+                                    <div className="text-emerald-700 font-medium">
+                                      Surplus {formatCurrency(y.rmdSurplusGross / deflator)} → <span className="font-bold">{formatCurrency((y.rmdSurplusReinvested || 0) / deflator)}</span> net redirected to Brokerage
+                                    </div>
+                                  ) : (
+                                    <div className="text-slate-500 text-[10px]">Fully absorbed by living expense withdrawals</div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {y.rothConvertedAmount !== undefined && y.rothConvertedAmount > 0 && (
+                              <div className="bg-purple-50/70 p-2.5 rounded-lg border border-purple-200">
+                                <span className="text-[10px] uppercase font-bold text-purple-800 block">Roth Conversion Strategy</span>
+                                <div className="text-xs text-purple-900 mt-0.5 space-y-0.5">
+                                  <div>Converted to Roth: <span className="font-bold">{formatCurrency(y.rothConvertedAmount / deflator)}</span></div>
+                                  <div>Conversion Tax: <span className="font-semibold text-rose-600">{formatCurrency((y.rothConversionTax || 0) / deflator)}</span></div>
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -188,24 +304,42 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
                                   .filter(s => s.monthly === 'N')
                                   .sort((a, b) => a.priority - b.priority)
                                   .map(s => {
-                                    const beg = y.beginBalanceBySource[s.id] || 0;
-                                    const wd = y.withdrawalsBySource[s.id] || 0;
-                                    const end = y.endBalanceBySource[s.id] || 0;
-                                    const isAccessible = y.age >= (s.startAge || 0);
+                                    const beg = (y.beginBalanceBySource[s.id] || 0) / deflator;
+                                    const wd = (y.withdrawalsBySource[s.id] || 0) / deflator;
+                                    const end = (y.endBalanceBySource[s.id] || 0) / deflator;
+                                    const owner = s.owner || 'primary';
+
+                                    let isAccessible = false;
+                                    if (owner === 'spouse' && hasSpouse && y.spouseAge !== undefined) {
+                                      isAccessible = y.spouseAge >= (s.startAge || 0);
+                                    } else if (owner === 'joint' && hasSpouse && y.spouseAge !== undefined) {
+                                      isAccessible = Math.max(y.age, y.spouseAge) >= (s.startAge || 0);
+                                    } else {
+                                      isAccessible = y.age >= (s.startAge || 0);
+                                    }
 
                                     return (
                                       <div
                                         key={s.id}
                                         className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100 last:border-0"
                                       >
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
                                           <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-[9px]">
                                             {s.priority}
                                           </span>
                                           <span className="font-medium text-slate-800">{s.name}</span>
+                                          {hasSpouse && (
+                                            <span className={`text-[9px] px-1 py-0.2 rounded font-medium ${
+                                              owner === 'spouse' ? 'bg-purple-50 text-purple-700' :
+                                              owner === 'joint' ? 'bg-indigo-50 text-indigo-700' :
+                                              'bg-blue-50 text-blue-700'
+                                            }`}>
+                                              {owner === 'spouse' ? spouseName : owner === 'joint' ? 'Joint' : primaryName}
+                                            </span>
+                                          )}
                                           {!isAccessible && (
                                             <span className="text-[10px] text-amber-600 bg-amber-50 px-1 rounded">
-                                              Locked (starts at {s.startAge})
+                                              Locked (starts at age {s.startAge})
                                             </span>
                                           )}
                                         </div>
@@ -231,16 +365,27 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
                                 {config.sources
                                   .filter(s => s.monthly === 'Y')
                                   .map(s => {
-                                    const payment = y.guaranteedBySource[s.id] || 0;
+                                    const rawPayment = y.guaranteedBySource[s.id] || 0;
+                                    const payment = rawPayment / deflator;
                                     const isActive = payment > 0;
+                                    const owner = s.owner || 'primary';
 
                                     return (
                                       <div
                                         key={s.id}
                                         className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100 last:border-0"
                                       >
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
                                           <span className="font-medium text-slate-800">{s.name}</span>
+                                          {hasSpouse && (
+                                            <span className={`text-[9px] px-1 py-0.2 rounded font-medium ${
+                                              owner === 'spouse' ? 'bg-purple-50 text-purple-700' :
+                                              owner === 'joint' ? 'bg-indigo-50 text-indigo-700' :
+                                              'bg-blue-50 text-blue-700'
+                                            }`}>
+                                              {owner === 'spouse' ? spouseName : owner === 'joint' ? 'Joint' : primaryName}
+                                            </span>
+                                          )}
                                           <span className="text-slate-400 text-[10px]">
                                             ({s.taxType}, starts {s.startAge})
                                           </span>
@@ -255,13 +400,22 @@ export const PlanTable: React.FC<PlanTableProps> = ({ years, config }) => {
                                   })}
                               </div>
                               {y.salary > 0 && (
-                                <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                                  <span className="font-medium text-slate-800">
-                                    Prorated Work Salary (Phase 0)
-                                  </span>
-                                  <span className="font-mono font-bold text-amber-700">
-                                    {formatCurrency(y.salary)}
-                                  </span>
+                                <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-[11px]">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-medium text-slate-800">
+                                      Total Active Work Salary
+                                    </span>
+                                    <span className="font-mono font-bold text-amber-700">
+                                      {formatCurrency(y.salary / deflator)}
+                                    </span>
+                                  </div>
+                                  {hasSpouse && (
+                                    <div className="text-[10px] text-slate-500 flex justify-between">
+                                      <span>
+                                        {primaryName}: {formatCurrency((y.primarySalary || 0) / deflator)} | {spouseName}: {formatCurrency((y.spouseSalary || 0) / deflator)}
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
