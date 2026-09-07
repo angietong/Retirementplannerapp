@@ -5,8 +5,8 @@ import { PlannerConfig, PlanSummary } from '../types';
 interface HeaderProps {
   config: PlannerConfig;
   summary: PlanSummary;
-  activeTab: 'overview' | 'charts' | 'table' | 'roth' | 'inputs';
-  setActiveTab: (tab: 'overview' | 'charts' | 'table' | 'roth' | 'inputs') => void;
+  activeTab: 'overview' | 'charts' | 'table' | 'roth' | 'whatif' | 'inputs';
+  setActiveTab: (tab: 'overview' | 'charts' | 'table' | 'roth' | 'whatif' | 'inputs') => void;
   onReset: () => void;
   onExport: () => void;
 }
@@ -117,6 +117,17 @@ export const Header: React.FC<HeaderProps> = ({
             {config.rothConversion?.enabled && (
               <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse"></span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab('whatif')}
+            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
+              activeTab === 'whatif'
+                ? 'border-emerald-600 text-emerald-700 font-semibold'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <Sliders className="w-4 h-4 text-emerald-600" />
+            What-If Optimization Scenarios
           </button>
           <button
             onClick={() => setActiveTab('inputs')}

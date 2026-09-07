@@ -11,6 +11,7 @@ import { PlanTable } from './components/PlanTable';
 import { InputsSection } from './components/InputsSection';
 import { PhaseExplanationCard } from './components/PhaseExplanationCard';
 import { RothConversionSimulator } from './components/RothConversionSimulator';
+import { WhatIfComparisonView } from './components/WhatIfComparisonView';
 
 export function App() {
   const [config, setConfig] = useState<PlannerConfig>(() => {
@@ -25,7 +26,7 @@ export function App() {
     return DEFAULT_CONFIG;
   });
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'table' | 'roth' | 'inputs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'table' | 'roth' | 'whatif' | 'inputs'>('overview');
   const [dollarMode, setDollarMode] = useState<DollarDisplayMode>('nominal');
   const [activePreset, setActivePreset] = useState<StressPreset>('baseline');
 
@@ -285,7 +286,19 @@ export function App() {
           </div>
         )}
 
-        {/* Tab 5: Configuration & Income Sources */}
+        {/* Tab 5: What-If Optimization Scenarios */}
+        {activeTab === 'whatif' && (
+          <div className="space-y-6">
+            <WhatIfComparisonView
+              config={config}
+              stressPreset={activePreset}
+              dollarMode={dollarMode}
+              getDeflator={getDeflator}
+            />
+          </div>
+        )}
+
+        {/* Tab 6: Configuration & Income Sources */}
         {activeTab === 'inputs' && (
           <div className="space-y-6">
             <InputsSection config={config} onChange={handleConfigChange} />
