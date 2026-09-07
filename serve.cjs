@@ -4,7 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const DIST_DIR = path.join(__dirname, 'dist');
+const DIST_DIR = fs.existsSync(path.join(__dirname, 'standalone'))
+  ? path.join(__dirname, 'standalone')
+  : path.join(__dirname, 'dist');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=UTF-8',
