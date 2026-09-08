@@ -259,7 +259,29 @@ Clicking **Export to Excel (.xlsx)** in the header runs `exportToExcel()` (`src/
 
 ---
 
-## 6. Development & Operational Commands
+## 6. What-If Scenario Comparison & Optimization Engine
+
+The application features an advanced What-If optimization engine (`src/whatifEngine.ts` and `src/components/WhatIfComparisonView.tsx`) that automatically stress-tests and optimizes your portfolio withdrawal sequencing across four distinct financial goals:
+
+### 6.1 Strategy 1: Minimize Lifetime Tax
+- **Optimization Logic**: Automatically reorders account withdrawal priorities to exhaust taxable cash and brokerage accounts before tax-deferred accounts, while executing strategic pre-73 Roth conversions to fill lower tax brackets and avoid higher future marginal tax rates.
+- **Key Metric Focus**: Minimizes cumulative lifetime federal, state, and capital gains taxes paid.
+
+### 6.2 Strategy 2: Minimize Future RMD
+- **Optimization Logic**: Prioritizes traditional pre-tax 401(k) / IRA withdrawals prior to age 73 and executes larger pre-73 Roth conversions to aggressively draw down pre-tax balances before Required Minimum Distributions begin.
+- **Key Metric Focus**: Lowers peak future RMD tax spikes and prevents forced high-bracket distributions in later retirement years.
+
+### 6.3 Strategy 3: Maximize Lifetime Spending
+- **Optimization Logic**: Iteratively evaluates portfolio longevity against lifestyle expenditure increases (up to +50%), identifying the highest safe annual sustainable expense multiplier that avoids premature fund depletion.
+- **Key Metric Focus**: Safely maximizes annual lifestyle cash flow without running out of money.
+
+### 6.4 Strategy 4: Maximize Estate Net Worth
+- **Optimization Logic**: Prioritizes drawing down taxable cash and brokerage accounts while deferring pre-tax accounts and keeping Roth accounts completely untouched (lowest priority / priority 99) to compound tax-free for legacy heirs.
+- **Key Metric Focus**: Maximizes final legacy net worth at life expectancy.
+
+---
+
+## 7. Development & Operational Commands
 
 All commands are executed using npm:
 
