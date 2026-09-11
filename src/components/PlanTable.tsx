@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { YearSimulationResult, PlannerConfig, DollarDisplayMode } from '../types';
+import { isSourceAccessible, getSourcePenaltyFreeAge } from '../engine';
 
 interface PlanTableProps {
   years: YearSimulationResult[];
@@ -266,6 +267,21 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                               </div>
                             </div>
 
+                            {y.isSynchronizedTdActive && y.tdWithdrawalByOwner && (
+                              <div className="bg-emerald-50/80 p-2.5 rounded-lg border border-emerald-200">
+                                <span className="text-[10px] uppercase font-bold text-emerald-800 block">Synchronized Pre-Tax Drawdown</span>
+                                <div className="text-xs text-emerald-900 mt-0.5 space-y-0.5">
+                                  <div className="font-semibold text-emerald-950">Pre-tax accounts drawing in tandem:</div>
+                                  <div className="flex items-center gap-2">
+                                    <span>{primaryName}: <strong>{formatCurrency(y.tdWithdrawalByOwner.primary / deflator)}</strong></span>
+                                    <span>•</span>
+                                    <span>{spouseName}: <strong>{formatCurrency(y.tdWithdrawalByOwner.spouse / deflator)}</strong></span>
+                                  </div>
+                                  <div className="text-[10px] text-emerald-700">Early depletion slashes future RMD exposure.</div>
+                                </div>
+                              </div>
+                            )}
+
                             {y.rmdTotal !== undefined && y.rmdTotal > 0 && (
                               <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200">
                                 <span className="text-[10px] uppercase font-bold text-amber-800 block">IRS SECURE 2.0 RMD (Age 73+)</span>
@@ -308,15 +324,8 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                                     const wd = (y.withdrawalsBySource[s.id] || 0) / deflator;
                                     const end = (y.endBalanceBySource[s.id] || 0) / deflator;
                                     const owner = s.owner || 'primary';
-
-                                    let isAccessible = false;
-                                    if (owner === 'spouse' && hasSpouse && y.spouseAge !== undefined) {
-                                      isAccessible = y.spouseAge >= (s.startAge || 0);
-                                    } else if (owner === 'joint' && hasSpouse && y.spouseAge !== undefined) {
-                                      isAccessible = Math.max(y.age, y.spouseAge) >= (s.startAge || 0);
-                                    } else {
-                                      isAccessible = y.age >= (s.startAge || 0);
-                                    }
+                                    const isAccessible = isSourceAccessible(s, y.age, y.spouseAge, config.milestones, hasSpouse);
+                                    const penaltyFreeAge = getSourcePenaltyFreeAge(s, config.milestones, owner === 'spouse');
 
                                     return (
                                       <div
@@ -337,10 +346,16 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                                               {owner === 'spouse' ? spouseName : owner === 'joint' ? 'Joint' : primaryName}
                                             </span>
                                           )}
-                                          {!isAccessible && (
+                                          {!isAccessible ? (
                                             <span className="text-[10px] text-amber-600 bg-amber-50 px-1 rounded">
-                                              Locked (starts at age {s.startAge})
+                                              Locked (penalty-free at age {penaltyFreeAge})
                                             </span>
+                                          ) : (
+                                            (s.taxType === 'Income' || s.accountType === '401k' || s.accountType === 'ira') && (
+                                              <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 rounded font-medium">
+                                                Eligible (age {penaltyFreeAge}+)
+                                              </span>
+                                            )
                                           )}
                                         </div>
                                         <div className="font-mono text-right space-x-2">

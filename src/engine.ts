@@ -81,6 +81,75 @@ export function getAdjustedAmount(
   return deflator > 0 ? amount / deflator : amount;
 }
 
+export function isTaxDeferredSource(s: { monthly: string; taxType: string; accountType?: string; name: string }): boolean {
+  if (s.monthly === 'Y') return false;
+  if (s.taxType === 'Income') return true;
+  const type = s.accountType;
+  if (type === '401k' || type === 'ira') return true;
+  const lower = s.name.toLowerCase();
+  if (lower.includes('401k') || lower.includes('403b') || lower.includes('ira') || lower.includes('traditional')) {
+    if (!lower.includes('roth')) return true;
+  }
+  return false;
+}
+
+export function getSourcePenaltyFreeAge(
+  s: { startAge?: number; accountType?: string; name: string },
+  milestones: PlannerConfig['milestones'],
+  isSpouseOwner: boolean
+): number {
+  const four01kAge = isSpouseOwner
+    ? (milestones.spouseFour01kAge ?? milestones.four01kAge ?? 55)
+    : (milestones.four01kAge ?? 55);
+  const iraAge = isSpouseOwner
+    ? (milestones.spouseIraAge ?? milestones.iraAge ?? 60)
+    : (milestones.iraAge ?? 60);
+
+  const lowerName = s.name.toLowerCase();
+  const type = s.accountType;
+
+  // 401(k) / 403(b)
+  if (type === '401k' || (!type && (lowerName.includes('401k') || lowerName.includes('403b') || lowerName.includes('employer')))) {
+    if (s.startAge !== undefined && s.startAge !== null && s.startAge > 0) {
+      return s.startAge;
+    }
+    return four01kAge;
+  }
+
+  // IRA / Roth
+  if (type === 'ira' || type === 'roth' || (!type && (lowerName.includes('ira') || lowerName.includes('roth')))) {
+    if (s.startAge !== undefined && s.startAge !== null && s.startAge > 0) {
+      return s.startAge;
+    }
+    return iraAge;
+  }
+
+  return s.startAge || 0;
+}
+
+export function isSourceAccessible(
+  s: { startAge?: number; accountType?: string; name: string; owner?: string },
+  age: number,
+  spouseAge: number | undefined,
+  milestones: PlannerConfig['milestones'],
+  hasSpouse: boolean
+): boolean {
+  const owner = s.owner || 'primary';
+  const isSpouse = owner === 'spouse';
+  const reqAge = getSourcePenaltyFreeAge(s, milestones, isSpouse);
+
+  if (owner === 'spouse') {
+    return Boolean(hasSpouse && spouseAge !== undefined && spouseAge >= reqAge);
+  }
+  if (owner === 'joint') {
+    const primEligible = age >= reqAge;
+    const spouseEligible = Boolean(hasSpouse && spouseAge !== undefined && spouseAge >= reqAge);
+    return primEligible || spouseEligible;
+  }
+  // primary
+  return age >= reqAge;
+}
+
 export function runSimulation(
   config: PlannerConfig,
   stressPreset: StressPreset = 'baseline',
@@ -103,19 +172,7 @@ export function runSimulation(
 
   const getSourceRequiredAge = (s: typeof sources[0]) => {
     const owner = s.owner || 'primary';
-    const isSpouseOwner = owner === 'spouse';
-    const acctFour01kAge = isSpouseOwner ? spouseFour01kAge : four01kAge;
-    const acctIraAge = isSpouseOwner ? spouseIraAge : iraAge;
-
-    const lowerName = s.name.toLowerCase();
-    const type = s.accountType;
-    if (type === '401k' || (!type && (lowerName.includes('401k') || lowerName.includes('403b') || lowerName.includes('employer')))) {
-      return s.startAge && s.startAge !== 60 ? s.startAge : acctFour01kAge;
-    }
-    if (type === 'ira' || type === 'roth' || (!type && (lowerName.includes('ira') || lowerName.includes('roth')))) {
-      return s.startAge && s.startAge !== 60 ? s.startAge : acctIraAge;
-    }
-    return s.startAge || 0;
+    return getSourcePenaltyFreeAge(s, milestones, owner === 'spouse');
   };
 
   const [retYearStr] = scenario.retDate.split('-');
@@ -366,27 +423,27 @@ export function runSimulation(
       source: typeof sources[0];
       orderKey: number;
       beginBal: number;
+      isTaxDeferred: boolean;
+      owner: 'primary' | 'spouse' | 'joint';
     }
 
     const depletingAccessible: AccessibleSource[] = [];
     sources.forEach((s, idx) => {
       if (s.monthly === 'N') {
         const orderKey = (s.priority ?? 9999) + idx * 0.0001;
-        const beginBal = beginBalanceBySource[s.id];
-        const owner = s.owner || 'primary';
-        const requiredStartAge = getSourceRequiredAge(s);
-
-        let isAccessible = false;
-        if (owner === 'spouse' && hasSpouse && spouseAge !== undefined) {
-          isAccessible = spouseAge >= requiredStartAge;
-        } else if (owner === 'joint' && hasSpouse && spouseAge !== undefined) {
-          isAccessible = Math.max(age, spouseAge) >= requiredStartAge;
-        } else {
-          isAccessible = age >= requiredStartAge;
-        }
+        const beginBal = beginBalanceBySource[s.id] || 0;
+        const owner = (s.owner || 'primary') as 'primary' | 'spouse' | 'joint';
+        const isAccessible = isSourceAccessible(s, age, spouseAge, milestones, hasSpouse);
 
         if (isAccessible) {
-          depletingAccessible.push({ source: s, orderKey, beginBal });
+          const isTaxDef = isTaxDeferredSource(s);
+          depletingAccessible.push({
+            source: s,
+            orderKey,
+            beginBal,
+            isTaxDeferred: isTaxDef,
+            owner,
+          });
         }
       }
     });
@@ -399,15 +456,124 @@ export function runSimulation(
       withdrawalsBySource[s.id] = 0;
     });
 
-    let cumulativePrev = 0;
-    depletingAccessible.forEach(item => {
-      const cumulativeCurr = cumulativePrev + Math.max(0, item.beginBal);
-      const fillCurr = Math.min(baseWdTotal, cumulativeCurr);
-      const fillPrev = Math.min(baseWdTotal, cumulativePrev);
-      const normalWd = Math.max(0, fillCurr - fillPrev);
-      withdrawalsBySource[item.source.id] = normalWd;
-      cumulativePrev = cumulativeCurr;
-    });
+    let isSynchronizedTdActive = false;
+    const tdWithdrawalByOwner = { primary: 0, spouse: 0 };
+
+    // Synchronized multi-member tax-deferred strategy check
+    const tdStrategyEnabled = config.taxDeferredStrategy?.enabled ?? true;
+    const tdStrategyMethod = config.taxDeferredStrategy?.method ?? 'proportional';
+
+    const primaryTdItems = depletingAccessible.filter(
+      item => item.isTaxDeferred && item.owner !== 'spouse' && item.beginBal > 0
+    );
+    const spouseTdItems = depletingAccessible.filter(
+      item => item.isTaxDeferred && item.owner === 'spouse' && item.beginBal > 0
+    );
+
+    const primaryTdBal = primaryTdItems.reduce((acc, item) => acc + Math.max(0, item.beginBal), 0);
+    const spouseTdBal = spouseTdItems.reduce((acc, item) => acc + Math.max(0, item.beginBal), 0);
+    const canBalanceTd = tdStrategyEnabled && hasSpouse && primaryTdBal > 0 && spouseTdBal > 0;
+
+    if (canBalanceTd) {
+      // Find the priority order bounds for the tax-deferred tier
+      const tdOrderKeys = [...primaryTdItems, ...spouseTdItems].map(i => i.orderKey);
+      const minTdOrderKey = Math.min(...tdOrderKeys);
+
+      let filledSoFar = 0;
+
+      // 1. Fill any accessible non-tax-deferred sources with priority ahead of the tax-deferred tier (e.g. Cash if priority 1)
+      depletingAccessible
+        .filter(item => !item.isTaxDeferred && item.orderKey < minTdOrderKey)
+        .forEach(item => {
+          const needed = Math.max(0, baseWdTotal - filledSoFar);
+          const wd = Math.min(Math.max(0, item.beginBal), needed);
+          withdrawalsBySource[item.source.id] = wd;
+          filledSoFar += wd;
+        });
+
+      // 2. Tax-deferred tier: Draw from both Primary and Spouse pre-tax accounts in tandem to reduce RMD exposure
+      const remainingForTd = Math.max(0, baseWdTotal - filledSoFar);
+      const totalTdBal = primaryTdBal + spouseTdBal;
+      const tdWithdrawalNeeded = Math.min(remainingForTd, totalTdBal);
+
+      if (tdWithdrawalNeeded > 0) {
+        isSynchronizedTdActive = true;
+        let primaryTarget = 0;
+        let spouseTarget = 0;
+
+        if (tdStrategyMethod === 'equal') {
+          const half = tdWithdrawalNeeded / 2;
+          primaryTarget = Math.min(primaryTdBal, half);
+          spouseTarget = Math.min(spouseTdBal, half);
+          let rem = tdWithdrawalNeeded - (primaryTarget + spouseTarget);
+          if (rem > 0) {
+            if (primaryTdBal > primaryTarget) {
+              const add = Math.min(primaryTdBal - primaryTarget, rem);
+              primaryTarget += add;
+              rem -= add;
+            }
+            if (rem > 0 && spouseTdBal > spouseTarget) {
+              spouseTarget += Math.min(spouseTdBal - spouseTarget, rem);
+            }
+          }
+        } else {
+          // 'proportional' (default: depletes accounts proportional to balance to reduce future RMDs)
+          primaryTarget = totalTdBal > 0 ? tdWithdrawalNeeded * (primaryTdBal / totalTdBal) : 0;
+          spouseTarget = totalTdBal > 0 ? tdWithdrawalNeeded * (spouseTdBal / totalTdBal) : 0;
+        }
+
+        // Allocate primaryTarget across Primary's tax-deferred accounts in priority order
+        let primRem = primaryTarget;
+        primaryTdItems.forEach(item => {
+          const avail = Math.max(0, item.beginBal);
+          const wd = Math.min(avail, primRem);
+          withdrawalsBySource[item.source.id] = wd;
+          primRem -= wd;
+          tdWithdrawalByOwner.primary += wd;
+        });
+
+        // Allocate spouseTarget across Spouse's tax-deferred accounts in priority order
+        let spRem = spouseTarget;
+        spouseTdItems.forEach(item => {
+          const avail = Math.max(0, item.beginBal);
+          const wd = Math.min(avail, spRem);
+          withdrawalsBySource[item.source.id] = wd;
+          spRem -= wd;
+          tdWithdrawalByOwner.spouse += wd;
+        });
+
+        filledSoFar += tdWithdrawalNeeded;
+      }
+
+      // 3. Fill any non-tax-deferred sources with priority after the tax-deferred tier (e.g. Brokerage, Roth)
+      depletingAccessible
+        .filter(item => !item.isTaxDeferred && item.orderKey >= minTdOrderKey)
+        .forEach(item => {
+          const needed = Math.max(0, baseWdTotal - filledSoFar);
+          const wd = Math.min(Math.max(0, item.beginBal), needed);
+          withdrawalsBySource[item.source.id] = wd;
+          filledSoFar += wd;
+        });
+    } else {
+      // Standard sequential priority waterfall
+      let cumulativePrev = 0;
+      depletingAccessible.forEach(item => {
+        const cumulativeCurr = cumulativePrev + Math.max(0, item.beginBal);
+        const fillCurr = Math.min(baseWdTotal, cumulativeCurr);
+        const fillPrev = Math.min(baseWdTotal, cumulativePrev);
+        const normalWd = Math.max(0, fillCurr - fillPrev);
+        withdrawalsBySource[item.source.id] = normalWd;
+        cumulativePrev = cumulativeCurr;
+
+        if (item.isTaxDeferred && normalWd > 0) {
+          if (item.owner === 'spouse') {
+            tdWithdrawalByOwner.spouse += normalWd;
+          } else {
+            tdWithdrawalByOwner.primary += normalWd;
+          }
+        }
+      });
+    }
 
     // Check RMD mandate: Each pre-tax account MUST distribute AT LEAST its RMD amount
     let rmdSurplusGross = 0;
@@ -590,6 +756,8 @@ export function runSimulation(
       rmdBySource,
       rothConvertedAmount,
       rothConversionTax,
+      isSynchronizedTdActive,
+      tdWithdrawalByOwner,
       withdrawalsBySource,
       guaranteedBySource,
       incomeBySource,

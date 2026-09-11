@@ -87,6 +87,11 @@ export interface RothConversionConfig {
   targetRothAccountId?: string;
 }
 
+export interface TaxDeferredWithdrawalStrategy {
+  enabled: boolean;
+  method: 'proportional' | 'equal';
+}
+
 export interface PlannerConfig {
   scenario: ScenarioParams;
   milestones: MilestoneAges;
@@ -95,6 +100,7 @@ export interface PlannerConfig {
   sources: IncomeSource[];
   projectionYears: number;
   rothConversion?: RothConversionConfig;
+  taxDeferredStrategy?: TaxDeferredWithdrawalStrategy;
 }
 
 export interface YearSimulationResult {
@@ -136,6 +142,9 @@ export interface YearSimulationResult {
   // Roth conversion tracking
   rothConvertedAmount?: number;
   rothConversionTax?: number;
+  // Synchronized household pre-tax drawdown tracking
+  isSynchronizedTdActive?: boolean;
+  tdWithdrawalByOwner?: { primary: number; spouse: number };
   withdrawalsBySource: Record<string, number>;
   guaranteedBySource: Record<string, number>;
   incomeBySource: Record<string, number>;

@@ -1,4 +1,9 @@
-import { PlannerConfig, StressPreset, StressPresetConfig, RothConversionConfig } from './types';
+import { PlannerConfig, StressPreset, StressPresetConfig, RothConversionConfig, TaxDeferredWithdrawalStrategy } from './types';
+
+export const DEFAULT_TAX_DEFERRED_STRATEGY: TaxDeferredWithdrawalStrategy = {
+  enabled: true,
+  method: 'proportional',
+};
 
 export const DEFAULT_ROTH_CONFIG: RothConversionConfig = {
   enabled: false,
@@ -90,6 +95,7 @@ export const DEFAULT_CONFIG: PlannerConfig = {
     expMedOopPost: 180,
   },
   rothConversion: DEFAULT_ROTH_CONFIG,
+  taxDeferredStrategy: DEFAULT_TAX_DEFERRED_STRATEGY,
   sources: [
     {
       id: 'src-1',

@@ -697,6 +697,80 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
                   </div>
                 </div>
               </div>
+
+              {/* Tax-Deferred Drawdown & RMD Mitigation Strategy */}
+              <div className="pt-4 border-t border-slate-200">
+                <div className="bg-gradient-to-r from-emerald-50/70 to-teal-50/70 border border-emerald-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs">
+                          ⚡
+                        </span>
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                          Tax-Deferred 401(k) / IRA Early Depletion Strategy
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                        Starts withdrawing from tax-deferred accounts as soon as each member becomes penalty-free eligible (Rule of 55 for 401(k), 59½/60 for IRA).
+                        When the second member becomes eligible, withdrawals balance across both members&apos; pre-tax accounts to accelerate early depletion and slash future RMD tax spikes.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={config.taxDeferredStrategy?.enabled ?? true}
+                        onChange={e => {
+                          onChange({
+                            ...config,
+                            taxDeferredStrategy: {
+                              enabled: e.target.checked,
+                              method: config.taxDeferredStrategy?.method ?? 'proportional',
+                            },
+                          });
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  {(config.taxDeferredStrategy?.enabled ?? true) && (
+                    <div className="mt-3 pt-3 border-t border-emerald-100 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Drawdown Allocation Method
+                        </label>
+                        <select
+                          value={config.taxDeferredStrategy?.method ?? 'proportional'}
+                          onChange={e => {
+                            onChange({
+                              ...config,
+                              taxDeferredStrategy: {
+                                enabled: config.taxDeferredStrategy?.enabled ?? true,
+                                method: e.target.value as 'proportional' | 'equal',
+                              },
+                            });
+                          }}
+                          className="w-full border border-emerald-200 rounded-md px-2.5 py-1.5 text-xs text-slate-900 bg-white focus:outline-emerald-500"
+                        >
+                          <option value="proportional">Proportional to Balances (Optimal for RMD Mitigation)</option>
+                          <option value="equal">Equal 50 / 50 Split Between Spouses</option>
+                        </select>
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          Proportional drawdown smoothly drains both accounts in tandem relative to asset size.
+                        </p>
+                      </div>
+
+                      <div className="bg-white/80 p-2.5 rounded border border-emerald-100 text-[11px] text-slate-700 space-y-1">
+                        <span className="font-semibold text-emerald-900 block">Dynamic Transition Workflow:</span>
+                        <div>1. Prior to second member eligibility: First member supplies 100% of required pre-tax living withdrawals.</div>
+                        <div>2. Upon second member turning eligible (e.g. age 60): Second member begins withdrawals, automatically lowering first member&apos;s withdrawals.</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}

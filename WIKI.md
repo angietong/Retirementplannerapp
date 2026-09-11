@@ -211,7 +211,35 @@ $$\text{State Tax} = \text{stateRate} \times \text{Other Taxable}_i + \text{stat
 $$\text{CapGain Tax} = \text{capgainRate} \times \text{taxablePct} \times \text{capgainPct} \times W_i$$
 $$\text{Total Tax}_i = \text{Fed Tax} + \text{State Tax} + \text{CapGain Tax}$$
 
-### 4.4 Priority-Based Withdrawal Cascading
+### 4.4 Priority-Based Withdrawal Cascading & Multi-Member Tax-Deferred Strategy
+
+#### 4.4.1 Penalty-Free Account Eligibility
+Withdrawal accessibility is determined on an account-by-account basis based on account ownership (`primary`, `spouse`, or `joint`) and milestone age rules:
+- **401(k) / 403(b) Accounts**: Eligible penalty-free at the owner's Rule of 55 retirement milestone (`milestones.four01kAge` or `spouseFour01kAge`, default age 55) or custom source `startAge`.
+- **Traditional & Roth IRAs**: Eligible penalty-free at age 59½ / 60 (`milestones.iraAge` or `spouseIraAge`, default age 60) or custom source `startAge`.
+- **Taxable Brokerage & Savings**: Liquid and accessible at all ages without statutory penalty.
+
+#### 4.4.2 Dynamic Multi-Member Tax-Deferred Drawdown (RMD Mitigation)
+To prevent one spouse's tax-deferred accounts from compounding into massive late-retirement RMD tax burdens, the simulation incorporates an automated **Synchronized Pre-Tax Drawdown Strategy**:
+
+1. **Initial Single-Eligible Period**:
+   When only one household member has reached penalty-free eligibility (e.g., Primary is 55 under Rule of 55, while Spouse is under 60), the eligible member's pre-tax accounts supply 100% of the required tax-deferred living withdrawals. Accounts of the ineligible member remain locked.
+
+2. **Transition Trigger upon Second Member Eligibility**:
+   In the exact simulation year the second member reaches penalty-free eligibility (e.g., Spouse turns 60), the engine automatically unlocks the second member's tax-deferred accounts.
+   
+3. **Dynamic Drawdown Shift**:
+   The engine begins drawing from the second member's pre-tax accounts while proportionately **reducing** the withdrawal amount from the first member's accounts:
+   - **Proportional Allocation Mode (Default & Optimal)**:
+     $$\text{Withdrawal}_{\text{primary}} = W_{\text{td}} \times \frac{\text{Balance}_{\text{primary\_td}}}{\text{Balance}_{\text{total\_td}}}$$
+     $$\text{Withdrawal}_{\text{spouse}} = W_{\text{td}} \times \frac{\text{Balance}_{\text{spouse\_td}}}{\text{Balance}_{\text{total\_td}}}$$
+   - **Equal Split Mode (50 / 50)**: Splits the required pre-tax withdrawal equally between spouses, absorbing any individual shortfall from the other spouse.
+
+4. **Future RMD Mitigation Benefit**:
+   By beginning withdrawals from both spouses' tax-deferred accounts as soon as each becomes eligible, both portfolios deplete smoothly in tandem. When SECURE 2.0 mandatory distributions begin at age 73, account balances are significantly lower, eliminating late-life tax bracket spikes.
+
+#### 4.4.3 Standard Priority Liquidation Waterfall
+For non-tax-deferred accounts or single-person households:
 Accessible depleting accounts ($monthly = \text{'N'}$, $\text{Age} \ge \text{startAge}$) are sorted by their priority order key:
 $$\text{OrderKey}_j = \text{priority}_j + j \times 0.0001$$
 
