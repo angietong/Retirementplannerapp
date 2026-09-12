@@ -290,10 +290,27 @@ export function runSimulation(
       baseMedOop = expenses.expMedOopPost ?? expenses.expMedOop;
     }
 
-    // Decoupled expenses calculation
+    // Major expenses calculation for specified age (up to 10 entries)
+    let yrMajorExpenses = 0;
+    const yrMajorExpensesList: { name: string; amount: number }[] = [];
+
+    if (config.majorExpenses && config.majorExpenses.length > 0) {
+      config.majorExpenses.forEach(m => {
+        if (m.amount > 0 && (Math.floor(m.age) === Math.floor(age) || Math.round(m.age) === Math.round(age))) {
+          const nominalAmount = m.inflationAdjusted !== false ? m.amount * cumGeneralInflation : m.amount;
+          yrMajorExpenses += nominalAmount;
+          yrMajorExpensesList.push({
+            name: m.name || 'Major Expense',
+            amount: nominalAmount,
+          });
+        }
+      });
+    }
+
+    // Decoupled expenses calculation (General Living + Medical + Major Specified Expenses)
     const yrGeneralExpenses = 12 * expenses.expDaily * cumGeneralInflation;
     const yrMedicalExpenses = 12 * (baseMedPremium + baseMedOop) * cumMedicalInflation;
-    const yrExpenses = yrGeneralExpenses + yrMedicalExpenses;
+    const yrExpenses = yrGeneralExpenses + yrMedicalExpenses + yrMajorExpenses;
 
     // Primary salary calculation
     let primarySalary = 0;
@@ -733,6 +750,8 @@ export function runSimulation(
       expenses: yrExpenses,
       generalExpenses: yrGeneralExpenses,
       medicalExpenses: yrMedicalExpenses,
+      majorExpenses: yrMajorExpenses,
+      majorExpensesList: yrMajorExpensesList,
       isMedicareActive,
       guarTotal,
       guarTaxable,

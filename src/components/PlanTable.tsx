@@ -202,11 +202,21 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-900">
                       <div>{formatCurrency(expAdj)}</div>
-                      {y.medicalExpenses !== undefined && (
-                        <div className="text-[10px] font-sans text-slate-400" title={`General: ${formatCurrency((y.generalExpenses || 0) / deflator)} | Healthcare: ${formatCurrency(y.medicalExpenses / deflator)}`}>
-                          Med: {formatCurrency(y.medicalExpenses / deflator)}
-                        </div>
-                      )}
+                      <div className="flex flex-col items-end gap-0.5 mt-0.5">
+                        {y.majorExpenses !== undefined && y.majorExpenses > 0 && (
+                          <div
+                            className="text-[10px] font-sans font-semibold text-amber-800 bg-amber-100/90 rounded px-1 inline-block"
+                            title={`Major Expense: ${y.majorExpensesList?.map(m => `${m.name} (${formatCurrency(m.amount / deflator)})`).join(', ') || formatCurrency(y.majorExpenses / deflator)}`}
+                          >
+                            ⭐ Major: +{formatCurrency(y.majorExpenses / deflator)}
+                          </div>
+                        )}
+                        {y.medicalExpenses !== undefined && (
+                          <div className="text-[10px] font-sans text-slate-400" title={`General: ${formatCurrency((y.generalExpenses || 0) / deflator)} | Healthcare: ${formatCurrency(y.medicalExpenses / deflator)}`}>
+                            Med: {formatCurrency(y.medicalExpenses / deflator)}
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-600">
                       {formatCurrency(fedTaxAdj)}
@@ -264,8 +274,34 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                               <div className="text-xs text-slate-700 mt-0.5 space-y-0.5">
                                 <div>General Living: <span className="font-semibold text-slate-900">{formatCurrency((y.generalExpenses || 0) / deflator)}</span></div>
                                 <div>Healthcare: <span className="font-semibold text-purple-700">{formatCurrency((y.medicalExpenses || 0) / deflator)}</span> {y.isMedicareActive ? '(Medicare Active)' : '(Pre-Medicare)'}</div>
+                                {y.majorExpenses !== undefined && y.majorExpenses > 0 && (
+                                  <div className="text-amber-800 font-semibold pt-0.5 border-t border-slate-100">
+                                    Major Expenses: +{formatCurrency(y.majorExpenses / deflator)}
+                                  </div>
+                                )}
                               </div>
                             </div>
+
+                            {y.majorExpenses !== undefined && y.majorExpenses > 0 && (
+                              <div className="bg-amber-50/80 p-2.5 rounded-lg border border-amber-200">
+                                <span className="text-[10px] uppercase font-bold text-amber-800 block">Scheduled Major Annual Expense(s)</span>
+                                <div className="text-xs text-amber-950 mt-0.5 space-y-1">
+                                  {y.majorExpensesList && y.majorExpensesList.length > 0 ? (
+                                    y.majorExpensesList.map((m, mIdx) => (
+                                      <div key={mIdx} className="flex items-center justify-between gap-2">
+                                        <span className="font-medium truncate">• {m.name}:</span>
+                                        <span className="font-bold shrink-0">{formatCurrency(m.amount / deflator)}</span>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div className="font-bold">{formatCurrency(y.majorExpenses / deflator)}</div>
+                                  )}
+                                  <div className="text-[10px] text-amber-800 pt-1 border-t border-amber-200/60">
+                                    Liquidation priority cascade automatically drew additional funds to cover this expense.
+                                  </div>
+                                </div>
+                              </div>
+                            )}
 
                             {y.isSynchronizedTdActive && y.tdWithdrawalByOwner && (
                               <div className="bg-emerald-50/80 p-2.5 rounded-lg border border-emerald-200">

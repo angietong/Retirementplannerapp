@@ -75,6 +75,15 @@ export interface MonthlyExpenses {
   expMedOopPost?: number;
 }
 
+export interface MajorExpense {
+  id: string;
+  name: string;
+  age: number;
+  amount: number;
+  inflationAdjusted?: boolean;
+  notes?: string;
+}
+
 export interface RothConversionConfig {
   enabled: boolean;
   startAge: number;
@@ -97,6 +106,7 @@ export interface PlannerConfig {
   milestones: MilestoneAges;
   rates: RateAssumptions;
   expenses: MonthlyExpenses;
+  majorExpenses?: MajorExpense[];
   sources: IncomeSource[];
   projectionYears: number;
   rothConversion?: RothConversionConfig;
@@ -117,6 +127,8 @@ export interface YearSimulationResult {
   expenses: number;
   generalExpenses?: number;
   medicalExpenses?: number;
+  majorExpenses?: number;
+  majorExpensesList?: { name: string; amount: number }[];
   isMedicareActive?: boolean;
   guarTotal: number;
   guarTaxable: number;

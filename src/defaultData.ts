@@ -1,9 +1,28 @@
-import { PlannerConfig, StressPreset, StressPresetConfig, RothConversionConfig, TaxDeferredWithdrawalStrategy } from './types';
+import { PlannerConfig, StressPreset, StressPresetConfig, RothConversionConfig, TaxDeferredWithdrawalStrategy, MajorExpense } from './types';
 
 export const DEFAULT_TAX_DEFERRED_STRATEGY: TaxDeferredWithdrawalStrategy = {
   enabled: true,
   method: 'proportional',
 };
+
+export const DEFAULT_MAJOR_EXPENSES: MajorExpense[] = [
+  {
+    id: 'exp-1',
+    name: 'Home Renovation / Roof Replacement',
+    age: 65,
+    amount: 35000,
+    inflationAdjusted: true,
+    notes: 'Major home remodel & new energy-efficient roof',
+  },
+  {
+    id: 'exp-2',
+    name: 'New Vehicle Replacement',
+    age: 70,
+    amount: 40000,
+    inflationAdjusted: true,
+    notes: 'New hybrid vehicle purchase in cash',
+  },
+];
 
 export const DEFAULT_ROTH_CONFIG: RothConversionConfig = {
   enabled: false,
@@ -94,6 +113,7 @@ export const DEFAULT_CONFIG: PlannerConfig = {
     expMedPremiumPost: 320, // Medicare Part B/D + supplement
     expMedOopPost: 180,
   },
+  majorExpenses: DEFAULT_MAJOR_EXPENSES,
   rothConversion: DEFAULT_ROTH_CONFIG,
   taxDeferredStrategy: DEFAULT_TAX_DEFERRED_STRATEGY,
   sources: [

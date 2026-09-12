@@ -18,7 +18,16 @@ export function App() {
     const saved = localStorage.getItem('rp_config_v2');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          majorExpenses: parsed.majorExpenses || DEFAULT_CONFIG.majorExpenses,
+          expenses: {
+            ...DEFAULT_CONFIG.expenses,
+            ...(parsed.expenses || {}),
+          },
+        };
       } catch (e) {
         console.error('Failed to parse saved config', e);
       }

@@ -154,6 +154,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
       spouseAge: y.spouseAge,
       'General Living': Math.round((y.generalExpenses || 0) / deflator),
       'Healthcare': Math.round((y.medicalExpenses || 0) / deflator),
+      'Major Expenses': Math.round((y.majorExpenses || 0) / deflator),
       'Federal Tax': Math.round(y.fedTax / deflator),
       'State Tax': Math.round(y.stateTax / deflator),
       'Capital Gain Tax': Math.round(y.capGainTax / deflator),
@@ -537,6 +538,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
                 {renderMilestoneLines()}
                 <Bar dataKey="General Living" stackId="expStack" fill="#3b82f6" />
                 <Bar dataKey="Healthcare" stackId="expStack" fill="#8b5cf6" />
+                <Bar dataKey="Major Expenses" stackId="expStack" fill="#f59e0b" />
                 <Bar dataKey="Federal Tax" stackId="expStack" fill="#ef4444" />
                 <Bar dataKey="State Tax" stackId="expStack" fill="#f97316" />
                 <Bar dataKey="Capital Gain Tax" stackId="expStack" fill="#ec4899" />
