@@ -25,6 +25,7 @@ import {
 } from 'recharts';
 import { PlannerConfig, RothConversionConfig, StressPreset, DollarDisplayMode } from '../types';
 import { compareRothConversion, getAdjustedAmount } from '../engine';
+import { formatCurrency } from '../utils/formatters';
 
 interface RothConversionSimulatorProps {
   config: PlannerConfig;
@@ -32,14 +33,6 @@ interface RothConversionSimulatorProps {
   dollarMode?: DollarDisplayMode;
   onUpdateConfig: (updated: PlannerConfig) => void;
 }
-
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount);
-};
 
 export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = ({
   config,
@@ -156,7 +149,7 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
                 </span>
               </div>
               <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
-                Convert pre-tax traditional 401(k) / IRA balances into tax-free Roth accounts during lower-income retirement gap years. Systematically fill up your current tax bracket before Age 73 RMDs force higher tax brackets and Medicare IRMAA surcharges.
+                Convert pre-tax traditional 401(k) / IRA balances into tax-free Roth accounts during lower-income retirement gap years. Systematically fill up your current tax bracket before Age {config.milestones.rmdAge} RMDs force higher tax brackets and Medicare IRMAA surcharges.
               </p>
             </div>
           </div>
@@ -208,12 +201,12 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
                 min="55"
                 max="85"
                 value={currentRothConfig.endAge}
-                onChange={e => updateRothConfig({ endAge: parseInt(e.target.value, 10) || 72 })}
+                onChange={e => updateRothConfig({ endAge: parseInt(e.target.value, 10) || (config.milestones.rmdAge - 1) })}
                 className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-900 focus:outline-purple-500"
-                title="End Age (e.g. 72, year before RMD age 73)"
+                title={`End Age (e.g. ${config.milestones.rmdAge - 1}, year before RMD age ${config.milestones.rmdAge})`}
               />
             </div>
-            <p className="text-[10px] text-slate-500 mt-1">Pre-RMD Window (Age 60 to 72)</p>
+            <p className="text-[10px] text-slate-500 mt-1">Pre-RMD Window (Age {currentRothConfig.startAge} to {currentRothConfig.endAge})</p>
           </div>
 
           <div>

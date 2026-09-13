@@ -9,8 +9,10 @@ import {
   MonteCarloPercentileResult,
 } from './types';
 
-// Official IRS Uniform Lifetime Table (Publication 590-B, SECURE 2.0 for RMD starting age 73)
+// Official IRS Uniform Lifetime Table (Publication 590-B, Table III for RMD calculation)
 export const IRS_UNIFORM_LIFETIME_DIVISORS: Record<number, number> = {
+  70: 29.1,
+  71: 28.2,
   72: 27.4,
   73: 26.5,
   74: 25.5,
@@ -64,7 +66,9 @@ export const IRS_UNIFORM_LIFETIME_DIVISORS: Record<number, number> = {
 
 export function getIrsRmdDivisor(age: number): number {
   const roundedAge = Math.floor(age);
-  if (roundedAge < 72) return 0;
+  if (roundedAge < 70) {
+    return Math.max(2.0, 29.1 + (70 - roundedAge) * 0.9);
+  }
   if (roundedAge > 120) return 2.0;
   return IRS_UNIFORM_LIFETIME_DIVISORS[roundedAge] || 2.0;
 }
@@ -212,16 +216,52 @@ export function runSimulation(
     (1 - rates.capgainPct) * incRate + rates.capgainPct * rates.capgainRate
   );
 
-  const startingCombinedBalance = sources
-    .filter(s => s.monthly === 'N')
-    .reduce((sum, s) => sum + (s.balance || 0), 0);
+  // Pre-process and index source attributes once outside the simulation loops
+  interface ProcessedSourceMeta {
+    source: typeof sources[0];
+    id: string;
+    name: string;
+    isMonthly: boolean;
+    isTaxDef: boolean;
+    owner: 'primary' | 'spouse' | 'joint';
+    reqAge: number;
+    orderKey: number;
+    taxType: string;
+    annualPayment: number;
+    balance: number;
+  }
+
+  const processedSources: ProcessedSourceMeta[] = sources.map((s, idx) => {
+    const isMonthly = s.monthly === 'Y';
+    const isTaxDef = isTaxDeferredSource(s);
+    const owner = (s.owner || 'primary') as 'primary' | 'spouse' | 'joint';
+    const reqAge = getSourcePenaltyFreeAge(s, milestones, owner === 'spouse');
+    const orderKey = (s.priority ?? 9999) + idx * 0.0001;
+    return {
+      source: s,
+      id: s.id,
+      name: s.name,
+      isMonthly,
+      isTaxDef,
+      owner,
+      reqAge,
+      orderKey,
+      taxType: s.taxType,
+      annualPayment: s.annualPayment || 0,
+      balance: s.balance || 0,
+    };
+  });
+
+  const startingCombinedBalance = processedSources
+    .filter(s => !s.isMonthly)
+    .reduce((sum, s) => sum + s.balance, 0);
 
   const years: YearSimulationResult[] = [];
   let prevEndBalances: Record<string, number> = {};
 
   // Initialize begin balances for yr = 0
-  sources.forEach(s => {
-    prevEndBalances[s.id] = s.monthly === 'N' ? (s.balance || 0) : 0;
+  processedSources.forEach(s => {
+    prevEndBalances[s.id] = !s.isMonthly ? s.balance : 0;
   });
 
   let fundsRunOutYear: number | null = null;
@@ -362,22 +402,19 @@ export function runSimulation(
     let guarTotal = 0;
     let guarTaxable = 0;
 
-    sources.forEach(s => {
-      if (s.monthly === 'Y') {
-        const owner = s.owner || 'primary';
+    processedSources.forEach(s => {
+      if (s.isMonthly) {
         let isAccessible = false;
-        const requiredStartAge = getSourceRequiredAge(s);
-
-        if (owner === 'spouse' && hasSpouse && spouseAge !== undefined) {
-          isAccessible = spouseAge >= requiredStartAge;
-        } else if (owner === 'joint' && hasSpouse && spouseAge !== undefined) {
-          isAccessible = Math.max(age, spouseAge) >= requiredStartAge;
+        if (s.owner === 'spouse' && hasSpouse && spouseAge !== undefined) {
+          isAccessible = spouseAge >= s.reqAge;
+        } else if (s.owner === 'joint' && hasSpouse && spouseAge !== undefined) {
+          isAccessible = Math.max(age, spouseAge) >= s.reqAge;
         } else {
-          isAccessible = age >= requiredStartAge;
+          isAccessible = age >= s.reqAge;
         }
 
         if (isAccessible) {
-          const payment = s.annualPayment || 0;
+          const payment = s.annualPayment;
           guaranteedBySource[s.id] = payment;
           guarTotal += payment;
           if (s.taxType === 'Income') {
@@ -395,8 +432,8 @@ export function runSimulation(
 
     // Begin balance per source
     const beginBalanceBySource: Record<string, number> = {};
-    sources.forEach(s => {
-      beginBalanceBySource[s.id] = s.monthly === 'N' ? (prevEndBalances[s.id] || 0) : 0;
+    processedSources.forEach(s => {
+      beginBalanceBySource[s.id] = !s.isMonthly ? (prevEndBalances[s.id] || 0) : 0;
     });
 
     // -------------------------------------------------------------
@@ -406,14 +443,13 @@ export function runSimulation(
     let rmdTotal = 0;
     let rmdDivisor = 0;
 
-    sources.forEach(s => {
+    processedSources.forEach(s => {
       rmdBySource[s.id] = 0;
-      if (s.monthly === 'N' && s.taxType === 'Income') {
-        const owner = s.owner || 'primary';
+      if (!s.isMonthly && s.taxType === 'Income') {
         let ownerAge = age;
-        if (owner === 'spouse' && hasSpouse && spouseAge !== undefined) {
+        if (s.owner === 'spouse' && hasSpouse && spouseAge !== undefined) {
           ownerAge = spouseAge;
-        } else if (owner === 'joint' && hasSpouse && spouseAge !== undefined) {
+        } else if (s.owner === 'joint' && hasSpouse && spouseAge !== undefined) {
           ownerAge = Math.max(age, spouseAge);
         }
 
@@ -445,21 +481,24 @@ export function runSimulation(
     }
 
     const depletingAccessible: AccessibleSource[] = [];
-    sources.forEach((s, idx) => {
-      if (s.monthly === 'N') {
-        const orderKey = (s.priority ?? 9999) + idx * 0.0001;
-        const beginBal = beginBalanceBySource[s.id] || 0;
-        const owner = (s.owner || 'primary') as 'primary' | 'spouse' | 'joint';
-        const isAccessible = isSourceAccessible(s, age, spouseAge, milestones, hasSpouse);
+    processedSources.forEach(s => {
+      if (!s.isMonthly) {
+        let isAccessible = false;
+        if (s.owner === 'spouse') {
+          isAccessible = Boolean(hasSpouse && spouseAge !== undefined && spouseAge >= s.reqAge);
+        } else if (s.owner === 'joint') {
+          isAccessible = age >= s.reqAge || Boolean(hasSpouse && spouseAge !== undefined && spouseAge >= s.reqAge);
+        } else {
+          isAccessible = age >= s.reqAge;
+        }
 
         if (isAccessible) {
-          const isTaxDef = isTaxDeferredSource(s);
           depletingAccessible.push({
-            source: s,
-            orderKey,
-            beginBal,
-            isTaxDeferred: isTaxDef,
-            owner,
+            source: s.source,
+            orderKey: s.orderKey,
+            beginBal: beginBalanceBySource[s.id] || 0,
+            isTaxDeferred: s.isTaxDef,
+            owner: s.owner,
           });
         }
       }
@@ -469,7 +508,7 @@ export function runSimulation(
 
     // Initial normal priority distribution to cover base living needs
     const withdrawalsBySource: Record<string, number> = {};
-    sources.forEach(s => {
+    processedSources.forEach(s => {
       withdrawalsBySource[s.id] = 0;
     });
 
@@ -617,23 +656,28 @@ export function runSimulation(
       rmdSurplusReinvested = Math.max(0, rmdSurplusGross - surplusTax);
     }
 
-    // Actual total withdrawals across all accounts
-    let wdTotal = 0;
-    sources.forEach(s => {
-      wdTotal += withdrawalsBySource[s.id] || 0;
-    });
-
     // Systematic Roth Conversion logic (if enabled)
     let rothConvertedAmount = 0;
     let rothConversionTax = 0;
+    const conversionDeductionsBySource: Record<string, number> = {};
 
     if (rothConfig?.enabled && age >= rothConfig.startAge && age <= rothConfig.endAge) {
       // Calculate taxable income before conversion
-      const baseTaxableIncome = totalSalary + guarTaxable + (scenario.taxablePct * wdTotal);
+      let currentTaxableLivingWd = 0;
+      depletingAccessible.forEach(item => {
+        const wd = withdrawalsBySource[item.source.id] || 0;
+        if (item.source.taxType === 'Income') {
+          currentTaxableLivingWd += wd;
+        } else if (item.source.taxType === 'Capital Gain') {
+          currentTaxableLivingWd += wd * rates.capgainPct;
+        }
+      });
+
+      const baseTaxableIncome = totalSalary + guarTaxable + currentTaxableLivingWd;
       const bracketRoom = Math.max(0, rothConfig.bracketRoomMaxIncome - baseTaxableIncome);
       const annualCap = rothConfig.annualCap > 0 ? rothConfig.annualCap : Infinity;
 
-      // Available pre-tax balances remaining after withdrawals
+      // Available pre-tax balances remaining after living & RMD withdrawals
       let availablePreTax = 0;
       depletingAccessible.forEach(item => {
         if (item.source.taxType === 'Income') {
@@ -655,33 +699,46 @@ export function runSimulation(
             const availableInAcct = Math.max(0, item.beginBal - currentWd);
             const deduct = Math.min(availableInAcct, convRemaining);
             withdrawalsBySource[item.source.id] = currentWd + deduct;
+            conversionDeductionsBySource[item.source.id] = deduct;
             convRemaining -= deduct;
           }
         });
-
-        // Add converted amount to Roth account
-        const netToRoth = rothConfig.taxPaymentMethod === 'withhold'
-          ? Math.max(0, rothConvertedAmount - rothConversionTax)
-          : rothConvertedAmount;
-
-        // Find existing Roth account
-        const rothAcct = sources.find(s => s.monthly === 'N' && s.taxType === 'N/a');
-        if (rothAcct) {
-          // Will be deposited into rothAcct balance below
-        }
       }
     }
 
-    // Taxes
-    const taxTarget = scenario.taxablePct * wdTotal;
-    const nonTaxTarget = (1 - scenario.taxablePct) * wdTotal;
+    // Actual total withdrawals across all accounts
+    let wdTotal = 0;
+    let livingWdTotal = 0;
+    let ordinaryLivingWd = 0;
+    let capGainLivingWd = 0;
+    let taxFreeLivingWd = 0;
 
-    const fedTax = rates.fedBracket * taxOther +
-      rates.fedBracket * scenario.taxablePct * (1 - rates.capgainPct) * wdTotal +
-      rothConversionTax;
-    const stateTax = rates.stateRate * taxOther +
-      rates.stateRate * scenario.taxablePct * (1 - rates.capgainPct) * wdTotal;
-    const capGainTax = rates.capgainRate * scenario.taxablePct * rates.capgainPct * wdTotal;
+    sources.forEach(s => {
+      const totWd = withdrawalsBySource[s.id] || 0;
+      const convDeduct = conversionDeductionsBySource[s.id] || 0;
+      const livingWd = Math.max(0, totWd - convDeduct);
+
+      wdTotal += totWd;
+      livingWdTotal += livingWd;
+
+      if (s.taxType === 'Income' || isTaxDeferredSource(s)) {
+        ordinaryLivingWd += livingWd;
+      } else if (s.taxType === 'Capital Gain' || s.accountType === 'brokerage') {
+        capGainLivingWd += livingWd;
+      } else {
+        taxFreeLivingWd += livingWd;
+      }
+    });
+
+    // Account-specific precise tax calculation
+    const taxableOrdinaryIncome = taxOther + ordinaryLivingWd;
+    const taxableCapGains = capGainLivingWd * rates.capgainPct;
+    const taxTarget = ordinaryLivingWd + taxableCapGains;
+    const nonTaxTarget = taxFreeLivingWd + (capGainLivingWd * (1 - rates.capgainPct));
+
+    const fedTax = (rates.fedBracket * taxableOrdinaryIncome) + rothConversionTax;
+    const stateTax = rates.stateRate * taxableOrdinaryIncome;
+    const capGainTax = rates.capgainRate * taxableCapGains;
     const totalTax = fedTax + stateTax + capGainTax;
 
     totalTaxesPaid += totalTax;

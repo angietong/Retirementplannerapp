@@ -1,6 +1,7 @@
 import React from 'react';
 import { ShieldAlert, ShieldCheck, Clock, Wallet, ReceiptText, Users, DollarSign } from 'lucide-react';
 import { PlanSummary, PlannerConfig, DollarDisplayMode } from '../types';
+import { formatCurrency } from '../utils/formatters';
 
 interface KeyResultsCardsProps {
   summary: PlanSummary;
@@ -9,14 +10,6 @@ interface KeyResultsCardsProps {
   stressPresetName?: string;
   isCustomStress?: boolean;
 }
-
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount);
-};
 
 export const KeyResultsCards: React.FC<KeyResultsCardsProps> = ({
   summary,

@@ -163,8 +163,8 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
             Automated System Optimization Rules Applied for "{selectedScenario.name}":
           </div>
           <p>
-            {selectedScenario.id === 'minTax' && 'The simulation automatically sequenced accounts to exhaust taxable cash and brokerage before tax-deferred accounts, while executing pre-73 Roth conversions to equalize tax brackets and avoid higher future marginal tax rates.'}
-            {selectedScenario.id === 'minRmd' && 'The simulation prioritized traditional pre-tax 401(k) / IRA withdrawals prior to age 73 and executed larger pre-73 Roth conversions to aggressively shrink pre-tax balances, minimizing future RMD spikes.'}
+            {selectedScenario.id === 'minTax' && 'The simulation automatically sequenced accounts to exhaust taxable cash and brokerage before tax-deferred accounts, while executing pre-RMD Roth conversions to equalize tax brackets and avoid higher future marginal tax rates.'}
+            {selectedScenario.id === 'minRmd' && `The simulation prioritized traditional pre-tax 401(k) / IRA withdrawals prior to mandatory RMD age (${config.milestones.rmdAge}) and executed targeted pre-RMD Roth conversions to aggressively shrink pre-tax balances, minimizing future RMD spikes.`}
             {selectedScenario.id === 'maxSpending' && 'The system iteratively evaluated lifestyle expense ceilings, identifying that your portfolio can safely sustain a higher annual expenditure without compromising long-term solvency.'}
             {selectedScenario.id === 'maxEstate' && 'The simulation prioritized drawing down taxable assets and deferred pre-tax withdrawals, while keeping Roth accounts untouched to compound tax-free for legacy heirs.'}
           </p>

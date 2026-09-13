@@ -98,15 +98,23 @@ The application was originally conceptualized as an Excel calculation workbook. 
     ├── App.tsx                  # Root application component & state orchestrator
     ├── types.ts                 # Central TypeScript interfaces & type definitions
     ├── defaultData.ts           # Baseline scenario parameters, stress presets & sample accounts
-    ├── engine.ts                # Deterministic & Monte Carlo retirement simulation engine
+    ├── engine.ts                # Deterministic & Monte Carlo retirement simulation engine (optimized)
     ├── whatifEngine.ts          # Optimization & comparative scenario engine
     ├── exportExcel.ts           # In-browser Excel (.xlsx) workbook generator
+    ├── utils/
+    │   └── formatters.ts        # Centralized currency, compact, percent & age formatters
     └── components/
         ├── Header.tsx           # Top navigation, scenario metadata & global actions
         ├── KeyResultsCards.tsx  # KPI summary metrics (Depletion, Longevity, Balance, Taxes)
         ├── ChartsSection.tsx    # Responsive charts (Depletion, Monte Carlo, Income, Expenses, Balances)
         ├── PlanTable.tsx        # Full year-by-year table with expandable drawer breakdowns
-        ├── InputsSection.tsx    # Comprehensive parameter editor & 20-source account manager
+        ├── InputsSection.tsx    # Parameter manager orchestrator (delegates to modular sub-tabs)
+        ├── inputs/              # Modular input tab components:
+        │   ├── SourcesTab.tsx   # Income & 20-source account prioritization table
+        │   ├── ScenarioTab.tsx  # 2-person household, birth dates, salaries & milestones
+        │   ├── RatesTab.tsx     # Returns, inflation, decoupled healthcare & tax rates
+        │   ├── ExpensesTab.tsx  # Living & pre-/post-Medicare medical expenses
+        │   └── MajorExpensesTab.tsx # 10-milestone major one-time expense scheduler
         ├── RothConversionSimulator.tsx # Dedicated systematic Roth conversion visualizer & optimizer
         ├── WhatIfComparisonView.tsx    # 4-strategy side-by-side scenario comparison cards & deltas
         └── PhaseExplanationCard.tsx    # Visual guide to household milestone phases
@@ -270,17 +278,23 @@ $$\text{Spouse Salary}_i = \begin{cases}
 4. **Total Required Annual Outflows**:
    $$\text{Total Expenses}_i = \text{General Expenses}_i + \text{Medical Expenses}_i + \text{Major Expenses}_i$$
 
-### 4.3 Gross-Up Withdrawal & Tax Projections
+### 4.3 Gross-Up Withdrawal & Account-Specific Tax Engine
 To ensure after-tax liquidation satisfies total living and major expenses:
 $$\text{Combined Income Tax Rate } (r_{\text{inc}}) = \text{fedBracket} + \text{stateRate}$$
 $$r_{\text{tax}} = \text{taxablePct} \times \left[(1 - \text{capgainPct}) \times r_{\text{inc}} + \text{capgainPct} \times \text{capgainRate}\right]$$
 $$\text{Gross Withdrawal Needed } (W_i) = \max\left(0, \frac{\text{Total Expenses}_i - (\text{Guaranteed Income}_i + \text{Salaries}_i) + r_{\text{inc}} \times \text{Taxable Income}_i}{1 - r_{\text{tax}}}\right)$$
 
-Taxes are partitioned into individual liabilities:
-$$\text{Fed Tax} = \text{fedBracket} \times \text{Taxable Other}_i + \text{fedBracket} \times \text{taxablePct} \times (1 - \text{capgainPct}) \times W_i$$
-$$\text{State Tax} = \text{stateRate} \times \text{Taxable Other}_i + \text{stateRate} \times \text{taxablePct} \times (1 - \text{capgainPct}) \times W_i$$
-$$\text{CapGain Tax} = \text{capgainRate} \times \text{taxablePct} \times \text{capgainPct} \times W_i$$
-$$\text{Total Tax}_i = \text{Fed Tax} + \text{State Tax} + \text{CapGain Tax}$$
+Taxes are partitioned using account-specific statutory tax characterization:
+1. **Pre-Tax Withdrawals** (`taxType === 'Income'`, e.g., Traditional 401(k), Traditional IRA): 100% ordinary taxable income.
+2. **Taxable Brokerage Withdrawals** (`taxType === 'Capital Gain'`): Capital gains portion is taxed at $\text{capgainRate}$.
+3. **Tax-Free Withdrawals** (`taxType === 'N/a'`, e.g., Roth accounts, Cash/Savings): 0% tax ($0 tax liability).
+4. **Roth Conversions**: Transferred amounts are taxed once at the conversion target rate without living withdrawal double-taxation.
+
+$$\text{Taxable Ordinary Income}_i = \text{Salary}_i + \text{GuarTaxable}_i + \text{OrdinaryLivingWd}_i$$
+$$\text{Fed Tax}_i = \left(\text{fedBracket} \times \text{Taxable Ordinary Income}_i\right) + \text{RothConversionTax}_i$$
+$$\text{State Tax}_i = \text{stateRate} \times \text{Taxable Ordinary Income}_i$$
+$$\text{CapGain Tax}_i = \text{capgainRate} \times \left(\text{CapGainLivingWd}_i \times \text{capgainPct}\right)$$
+$$\text{Total Tax}_i = \text{Fed Tax}_i + \text{State Tax}_i + \text{CapGain Tax}_i$$
 
 ### 4.4 Account-Level Liquidation Cascade & Rule of 55 / IRA Rules
 Accounts become eligible for penalty-free liquidation based on ownership and account type:
@@ -300,14 +314,14 @@ To prevent one spouse's traditional 401(k) / IRA from compounding into high-brac
    $$\text{Withdrawal}_{\text{spouse}} = W_{\text{td}} \times \frac{\text{Balance}_{\text{spouse\_td}}}{\text{Balance}_{\text{total\_td}}}$$
 
 ### 4.6 IRS Uniform Lifetime Table RMD Mandates & Reinvestment
-Starting at age 73 (`rmdAge`), the engine calculates statutory RMDs for every pre-tax account:
+Starting at the configured input milestone age `milestones.rmdAge` (defaulting to IRS SECURE 2.0 age 73, or custom ages such as 70, 72, or 75), the engine calculates statutory RMDs for every pre-tax account using the IRS Uniform Lifetime Table (Publication 590-B, Table III):
 $$\text{RMD}_{j,i} = \frac{\text{BeginBalance}_{j,i}}{\text{IRS Divisor}(\text{Age}_i)}$$
 
 - If required living withdrawals exceed the statutory RMD, the distribution satisfies the mandate.
 - If statutory RMD exceeds required withdrawals, the **RMD surplus** is grossed up for taxes and automatically reinvested into the household's primary taxable brokerage account.
 
 ### 4.7 Systematic Roth Conversion Optimization Engine
-The engine models pre-73 annual Roth conversions:
+The engine models pre-RMD annual Roth conversions (up to the year preceding `rmdAge`):
 $$\text{Bracket Room}_i = \max(0, \text{Bracket Max Income} - \text{Ordinary Taxable Income}_i)$$
 $$\text{Converted Amount}_i = \min(\text{Bracket Room}_i, \text{Annual Cap}, \text{Pre-Tax Balance}_i)$$
 $$\text{Conversion Tax}_i = \text{Converted Amount}_i \times (\text{Target Bracket Rate} + \text{State Rate})$$

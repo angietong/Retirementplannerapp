@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { YearSimulationResult, PlannerConfig, DollarDisplayMode } from '../types';
 import { isSourceAccessible, getSourcePenaltyFreeAge } from '../engine';
+import { formatCurrency } from '../utils/formatters';
 
 interface PlanTableProps {
   years: YearSimulationResult[];
@@ -9,14 +10,6 @@ interface PlanTableProps {
   dollarMode?: DollarDisplayMode;
   onDollarModeChange?: (mode: DollarDisplayMode) => void;
 }
-
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount);
-};
 
 export const PlanTable: React.FC<PlanTableProps> = ({
   years,
@@ -320,7 +313,7 @@ export const PlanTable: React.FC<PlanTableProps> = ({
 
                             {y.rmdTotal !== undefined && y.rmdTotal > 0 && (
                               <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200">
-                                <span className="text-[10px] uppercase font-bold text-amber-800 block">IRS SECURE 2.0 RMD (Age 73+)</span>
+                                <span className="text-[10px] uppercase font-bold text-amber-800 block">IRS RMD (Age {config.milestones.rmdAge}+)</span>
                                 <div className="text-xs text-amber-900 mt-0.5 space-y-0.5">
                                   <div>Mandated RMD: <span className="font-bold">{formatCurrency(y.rmdTotal / deflator)}</span> (Divisor: {y.rmdDivisor})</div>
                                   {y.rmdSurplusGross !== undefined && y.rmdSurplusGross > 0 ? (

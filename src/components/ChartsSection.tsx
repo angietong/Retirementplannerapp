@@ -17,6 +17,7 @@ import {
 import { Flag, Sparkles, Activity } from 'lucide-react';
 import { PlannerConfig, YearSimulationResult, DollarDisplayMode, MonteCarloPercentileResult } from '../types';
 import { runMonteCarloSimulation } from '../engine';
+import { formatCurrency, formatCurrencyCompact } from '../utils/formatters';
 
 interface ChartsSectionProps {
   config: PlannerConfig;
@@ -25,24 +26,6 @@ interface ChartsSectionProps {
   dollarMode?: DollarDisplayMode;
   onDollarModeChange?: (mode: DollarDisplayMode) => void;
 }
-
-const formatCurrencyCompact = (val: number) => {
-  if (Math.abs(val) >= 1_000_000) {
-    return `$${(val / 1_000_000).toFixed(1)}M`;
-  }
-  if (Math.abs(val) >= 1_000) {
-    return `$${(val / 1_000).toFixed(0)}k`;
-  }
-  return `$${val}`;
-};
-
-const formatCurrency = (val: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(val);
-};
 
 // Distinct colors for sources
 const SOURCE_COLORS = [
@@ -230,7 +213,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
             strokeDasharray="3 3"
             strokeWidth={1}
             label={{
-              value: `🛡️ Medicare (65)`,
+              value: `🛡️ Medicare (${config.milestones.medicareAge})`,
               position: 'insideTopLeft',
               fill: '#0284c7',
               fontSize: 10,
@@ -245,7 +228,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
             strokeDasharray="3 3"
             strokeWidth={1}
             label={{
-              value: `📋 RMDs (73)`,
+              value: `📋 RMDs (${config.milestones.rmdAge})`,
               position: 'insideTopLeft',
               fill: '#9333ea',
               fontSize: 10,
