@@ -12,6 +12,7 @@ import { InputsSection } from './components/InputsSection';
 import { PhaseExplanationCard } from './components/PhaseExplanationCard';
 import { RothConversionSimulator } from './components/RothConversionSimulator';
 import { WhatIfComparisonView } from './components/WhatIfComparisonView';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 export function App() {
   const [config, setConfig] = useState<PlannerConfig>(() => {
@@ -352,6 +353,8 @@ export function App() {
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
         Retirement Financial Planner &bull; Transparent priority-based withdrawal sequencing and portfolio depletion engine.
       </footer>
+
+      <OfflineIndicator />
     </div>
   );
 }
