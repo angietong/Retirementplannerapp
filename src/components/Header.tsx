@@ -1,13 +1,13 @@
 import React from 'react';
-import { Download, RotateCcw, ShieldCheck, Calendar, DollarSign, BarChart3, Sliders, TableProperties, Sparkles } from 'lucide-react';
+import { Download, RotateCcw, ShieldCheck, Calendar, DollarSign, BarChart3, Sliders, TableProperties, Sparkles, HeartPulse } from 'lucide-react';
 import { PlannerConfig, PlanSummary } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   config: PlannerConfig;
   summary: PlanSummary;
-  activeTab: 'overview' | 'charts' | 'table' | 'roth' | 'whatif' | 'inputs';
-  setActiveTab: (tab: 'overview' | 'charts' | 'table' | 'roth' | 'whatif' | 'inputs') => void;
+  activeTab: 'overview' | 'charts' | 'table' | 'roth' | 'aca' | 'whatif' | 'inputs';
+  setActiveTab: (tab: 'overview' | 'charts' | 'table' | 'roth' | 'aca' | 'whatif' | 'inputs') => void;
   onReset: () => void;
   onExport: () => void;
 }
@@ -118,6 +118,20 @@ export const Header: React.FC<HeaderProps> = ({
             Roth Conversion Simulator
             {config.rothConversion?.enabled && (
               <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse"></span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('aca')}
+            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
+              activeTab === 'aca'
+                ? 'border-emerald-600 text-emerald-700 font-semibold'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <HeartPulse className="w-4 h-4 text-emerald-600" />
+            ACA Subsidy Planner
+            {config.acaOptimization?.enabled && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             )}
           </button>
           <button

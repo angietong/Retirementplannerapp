@@ -192,6 +192,11 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                           Roth: {formatCurrency(y.rothConvertedAmount / deflator)}
                         </div>
                       )}
+                      {y.isAcaApplicable && y.acaQualified && (y.acaSubsidySavings || 0) > 0 && (
+                        <div className="text-[10px] font-sans font-medium text-emerald-800 bg-emerald-50 rounded px-1 inline-block mt-0.5 ml-1" title={`ACA Subsidy Qualified! MAGI: ${formatCurrency((y.acaMagi || 0) / deflator)} <= ${formatCurrency((y.acaTargetLimit || 0) / deflator)}`}>
+                          ACA: +{formatCurrency((y.acaSubsidySavings || 0) / deflator)}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-900">
                       <div>{formatCurrency(expAdj)}</div>
@@ -333,6 +338,45 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                                 <div className="text-xs text-purple-900 mt-0.5 space-y-0.5">
                                   <div>Converted to Roth: <span className="font-bold">{formatCurrency(y.rothConvertedAmount / deflator)}</span></div>
                                   <div>Conversion Tax: <span className="font-semibold text-rose-600">{formatCurrency((y.rothConversionTax || 0) / deflator)}</span></div>
+                                </div>
+                              </div>
+                            )}
+
+                            {y.isAcaApplicable && (
+                              <div
+                                className={`p-2.5 rounded-lg border ${
+                                  y.acaQualified
+                                    ? 'bg-emerald-50/80 border-emerald-300'
+                                    : 'bg-amber-50/80 border-amber-300'
+                                }`}
+                              >
+                                <span className="text-[10px] uppercase font-bold text-emerald-800 block">
+                                  ACA Healthcare Subsidy (Pre-Medicare)
+                                </span>
+                                <div className="text-xs text-slate-800 mt-0.5 space-y-0.5">
+                                  <div className="flex justify-between">
+                                    <span>Household ACA MAGI:</span>
+                                    <strong className={y.acaQualified ? 'text-emerald-700' : 'text-amber-800'}>
+                                      {formatCurrency((y.acaMagi || 0) / deflator)}
+                                    </strong>
+                                  </div>
+                                  <div className="flex justify-between text-slate-500 text-[11px]">
+                                    <span>Target Limit:</span>
+                                    <span>{formatCurrency((y.acaTargetLimit || 0) / deflator)}</span>
+                                  </div>
+                                  <div className="flex justify-between pt-1 border-t border-slate-200/60 font-semibold">
+                                    <span>Annual Subsidy Credit:</span>
+                                    <span className={y.acaQualified ? 'text-emerald-600' : 'text-slate-500'}>
+                                      {y.acaQualified && (y.acaSubsidySavings || 0) > 0
+                                        ? `+${formatCurrency((y.acaSubsidySavings || 0) / deflator)}`
+                                        : '$0 (Over limit)'}
+                                    </span>
+                                  </div>
+                                  {y.acaNonAgiWdUsed !== undefined && y.acaNonAgiWdUsed > 0 && (
+                                    <div className="text-[10px] text-emerald-700 pt-0.5">
+                                      Shielded {formatCurrency(y.acaNonAgiWdUsed / deflator)} via Cash/Roth Non-AGI bridge.
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             )}

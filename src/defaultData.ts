@@ -1,8 +1,47 @@
-import { PlannerConfig, StressPreset, StressPresetConfig, RothConversionConfig, TaxDeferredWithdrawalStrategy, MajorExpense } from './types';
+import {
+  PlannerConfig,
+  StressPreset,
+  StressPresetConfig,
+  RothConversionConfig,
+  TaxDeferredWithdrawalStrategy,
+  MajorExpense,
+  AcaOptimizationConfig,
+  AcaFplPreset,
+} from './types';
 
 export const DEFAULT_TAX_DEFERRED_STRATEGY: TaxDeferredWithdrawalStrategy = {
   enabled: true,
   method: 'proportional',
+};
+
+// 2025/2026 Federal Poverty Level (contiguous 48 states)
+export const ACA_FPL_BASE: Record<1 | 2, number> = {
+  1: 15650, // Single individual
+  2: 21150, // Couple / 2-person household
+};
+
+export function getAcaFplLimit(householdSize: 1 | 2, preset: AcaFplPreset, customAmount?: number): number {
+  const base = ACA_FPL_BASE[householdSize] || 21150;
+  switch (preset) {
+    case 'fpl200': return Math.round(base * 2.0);
+    case 'fpl250': return Math.round(base * 2.5);
+    case 'fpl300': return Math.round(base * 3.0);
+    case 'fpl400': return Math.round(base * 4.0);
+    case 'custom': return customAmount && customAmount > 0 ? customAmount : Math.round(base * 4.0);
+    default: return Math.round(base * 4.0);
+  }
+}
+
+export const DEFAULT_ACA_CONFIG: AcaOptimizationConfig = {
+  enabled: false,
+  preset: 'fpl400',
+  householdSize: 2,
+  customMagilimit: 84600,
+  targetMagilimit: 84600, // 400% FPL for couple ($84,600)
+  unsubsidizedAnnualPremium: 21600, // ~$1,800/mo unsubsidized private Silver policy for couple pre-65
+  endAge: 65, // Medicare eligibility milestone
+  prioritizeCashBeforeRoth: true,
+  adjustMedicalExpensesWithSubsidy: false,
 };
 
 export const DEFAULT_MAJOR_EXPENSES: MajorExpense[] = [
@@ -116,6 +155,7 @@ export const DEFAULT_CONFIG: PlannerConfig = {
   majorExpenses: DEFAULT_MAJOR_EXPENSES,
   rothConversion: DEFAULT_ROTH_CONFIG,
   taxDeferredStrategy: DEFAULT_TAX_DEFERRED_STRATEGY,
+  acaOptimization: DEFAULT_ACA_CONFIG,
   sources: [
     {
       id: 'src-1',

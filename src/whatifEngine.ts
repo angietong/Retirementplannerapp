@@ -1,8 +1,8 @@
-import { PlannerConfig, YearSimulationResult, PlanSummary, StressPreset } from './types';
+import { PlannerConfig, YearSimulationResult, PlanSummary, StressPreset, AcaOptimizationConfig } from './types';
 import { runSimulation } from './engine';
 
 export interface WhatIfScenarioResult {
-  id: 'baseline' | 'minTax' | 'minRmd' | 'maxSpending' | 'maxEstate';
+  id: 'baseline' | 'minTax' | 'minRmd' | 'acaSubsidy' | 'maxSpending' | 'maxEstate';
   name: string;
   description: string;
   summary: PlanSummary;
@@ -297,6 +297,32 @@ export function runWhatIfComparisons(
   const estateSim = bestEstateSim;
   const estatePeakRmd = Math.max(0, ...estateSim.years.map(y => y.rmdTotal || 0));
 
+  // -------------------------------------------------------------
+  // Scenario 5: ACA Medical Insurance Subsidy Optimization
+  // -------------------------------------------------------------
+  const acaTestConfig: AcaOptimizationConfig = {
+    enabled: true,
+    preset: config.acaOptimization?.preset ?? 'fpl400',
+    householdSize: config.acaOptimization?.householdSize ?? (isMfj ? 2 : 1),
+    targetMagilimit: config.acaOptimization?.targetMagilimit ?? (isMfj ? 84600 : 62600),
+    customMagilimit: config.acaOptimization?.customMagilimit ?? (isMfj ? 84600 : 62600),
+    unsubsidizedAnnualPremium:
+      config.acaOptimization?.unsubsidizedAnnualPremium ??
+      (config.expenses.expMedPremium * 12 > 0 ? config.expenses.expMedPremium * 12 : isMfj ? 21600 : 13200),
+    endAge: config.milestones.medicareAge || 65,
+    prioritizeCashBeforeRoth: true,
+    adjustMedicalExpensesWithSubsidy: false,
+  };
+
+  const acaSim = runSimulation(config, stressPreset, undefined, undefined, acaTestConfig);
+  const acaPeakRmd = Math.max(0, ...acaSim.years.map(y => y.rmdTotal || 0));
+  const totalSubsidiesSaved = acaSim.summary.totalAcaSubsidiesSaved ?? 0;
+  const acaYearsCount = acaSim.summary.acaYearsQualified ?? 0;
+  const acaDescription =
+    totalSubsidiesSaved > 0
+      ? `Caps pre-65 taxable AGI to qualify for $${Math.round(totalSubsidiesSaved).toLocaleString()} in health insurance subsidies across ${acaYearsCount} pre-Medicare year(s) using Cash/Roth bridges.`
+      : `Caps pre-65 taxable AGI below 400% FPL to qualify for maximum healthcare premium credits before Medicare at age 65.`;
+
   return [
     {
       id: 'baseline',
@@ -310,8 +336,19 @@ export function runWhatIfComparisons(
       maxSustainableAnnualExpense: config.expenses.expDaily * 12,
     },
     {
+      id: 'acaSubsidy',
+      name: '1) ACA Health Subsidy',
+      description: acaDescription,
+      summary: acaSim.summary,
+      years: acaSim.years,
+      totalTaxesPaid: acaSim.summary.totalTaxesPaid,
+      finalBalance: acaSim.summary.finalBalance,
+      peakRmd: acaPeakRmd,
+      maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+    },
+    {
       id: 'minTax',
-      name: '1) Minimize Lifetime Tax',
+      name: '2) Minimize Lifetime Tax',
       description: bestTaxDescription,
       summary: taxSim.summary,
       years: taxSim.years,
@@ -322,7 +359,7 @@ export function runWhatIfComparisons(
     },
     {
       id: 'minRmd',
-      name: '2) Minimize Future RMD',
+      name: '3) Minimize Future RMD',
       description: bestRmdDescription,
       summary: rmdSim.summary,
       years: rmdSim.years,
@@ -333,7 +370,7 @@ export function runWhatIfComparisons(
     },
     {
       id: 'maxSpending',
-      name: '3) Maximize Lifetime Spending',
+      name: '4) Maximize Lifetime Spending',
       description: spendDescription,
       summary: maxSpendSim.summary,
       years: maxSpendSim.years,
@@ -344,7 +381,7 @@ export function runWhatIfComparisons(
     },
     {
       id: 'maxEstate',
-      name: '4) Maximize Estate Net Worth',
+      name: '5) Maximize Estate Net Worth',
       description: bestEstateDescription,
       summary: estateSim.summary,
       years: estateSim.years,

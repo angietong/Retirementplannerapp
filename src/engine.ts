@@ -6,8 +6,11 @@ import {
   DollarDisplayMode,
   RothConversionConfig,
   RothComparisonResult,
+  AcaOptimizationConfig,
+  AcaComparisonResult,
   MonteCarloPercentileResult,
 } from './types';
+import { ACA_FPL_BASE } from './defaultData';
 
 // Official IRS Uniform Lifetime Table (Publication 590-B, Table III for RMD calculation)
 export const IRS_UNIFORM_LIFETIME_DIVISORS: Record<number, number> = {
@@ -97,6 +100,78 @@ export function isTaxDeferredSource(s: { monthly: string; taxType: string; accou
   return false;
 }
 
+export function isSourceNonAgi(s: { taxType: string; accountType?: string; name: string }): boolean {
+  if (s.taxType === 'N/a') return true;
+  const type = s.accountType;
+  if (type === 'cash' || type === 'roth') return true;
+  const lower = s.name.toLowerCase();
+  return lower.includes('cash') || lower.includes('savings') || lower.includes('checking') || lower.includes('roth') || lower.includes('hsa');
+}
+
+export function isSourceCash(s: { taxType: string; accountType?: string; name: string }): boolean {
+  const type = s.accountType;
+  if (type === 'cash') return true;
+  const lower = s.name.toLowerCase();
+  return lower.includes('cash') || lower.includes('savings') || lower.includes('checking') || lower.includes('money market');
+}
+
+export function isSourceRoth(s: { taxType: string; accountType?: string; name: string }): boolean {
+  const type = s.accountType;
+  if (type === 'roth') return true;
+  const lower = s.name.toLowerCase();
+  return lower.includes('roth');
+}
+
+export function calculateAcaSubsidy({
+  magi,
+  householdSize,
+  unsubsidizedPremium,
+  targetLimit,
+}: {
+  magi: number;
+  householdSize: 1 | 2;
+  unsubsidizedPremium: number;
+  targetLimit: number;
+}): { qualified: boolean; subsidyAmount: number; expectedContribution: number; fplRatio: number } {
+  const baseFpl = ACA_FPL_BASE[householdSize] || 21150;
+  const fplRatio = baseFpl > 0 ? magi / baseFpl : 4.0;
+
+  if (magi > targetLimit) {
+    return {
+      qualified: false,
+      subsidyAmount: 0,
+      expectedContribution: unsubsidizedPremium,
+      fplRatio,
+    };
+  }
+
+  // Sliding scale ACA benchmark expected contribution rate (% of MAGI)
+  let rate = 0.085;
+  if (fplRatio <= 1.50) {
+    rate = 0.0;
+  } else if (fplRatio <= 2.00) {
+    rate = 0.0 + ((fplRatio - 1.50) / 0.50) * 0.02; // 0% to 2%
+  } else if (fplRatio <= 2.50) {
+    rate = 0.02 + ((fplRatio - 2.00) / 0.50) * 0.02; // 2% to 4%
+  } else if (fplRatio <= 3.00) {
+    rate = 0.04 + ((fplRatio - 2.50) / 0.50) * 0.02; // 4% to 6%
+  } else if (fplRatio <= 4.00) {
+    rate = 0.06 + ((fplRatio - 3.00) / 1.00) * 0.025; // 6% to 8.5%
+  } else {
+    rate = 0.085;
+  }
+
+  const expectedContribution = Math.min(unsubsidizedPremium, Math.max(0, magi * rate));
+  const subsidyAmount = Math.max(0, unsubsidizedPremium - expectedContribution);
+
+  return {
+    qualified: true,
+    subsidyAmount,
+    expectedContribution,
+    fplRatio,
+  };
+}
+
 export function getSourcePenaltyFreeAge(
   s: { startAge?: number; accountType?: string; name: string },
   milestones: PlannerConfig['milestones'],
@@ -158,13 +233,17 @@ export function runSimulation(
   config: PlannerConfig,
   stressPreset: StressPreset = 'baseline',
   overrideRothConfig?: RothConversionConfig,
-  overrideInvestRates?: number[]
+  overrideInvestRates?: number[],
+  overrideAcaConfig?: AcaOptimizationConfig
 ): {
   years: YearSimulationResult[];
   summary: PlanSummary;
 } {
   const { scenario, milestones, rates, expenses, sources, projectionYears } = config;
   const rothConfig = overrideRothConfig ?? config.rothConversion;
+  const acaConfig = overrideAcaConfig ?? config.acaOptimization;
+  const acaEnabled = Boolean(acaConfig?.enabled);
+  const acaEndAge = acaConfig?.endAge ?? milestones.medicareAge ?? 65;
 
   const four01kAge = milestones.four01kAge ?? milestones.retireAcctAge ?? 55;
   const iraAge = milestones.iraAge ?? milestones.retireAcctAge ?? 60;
@@ -530,7 +609,166 @@ export function runSimulation(
     const spouseTdBal = spouseTdItems.reduce((acc, item) => acc + Math.max(0, item.beginBal), 0);
     const canBalanceTd = tdStrategyEnabled && hasSpouse && primaryTdBal > 0 && spouseTdBal > 0;
 
-    if (canBalanceTd) {
+    // ACA Healthcare Subsidy Optimization Pre-Medicare Check
+    const isPrimaryPreMedicare = age < acaEndAge;
+    const isSpousePreMedicare = hasSpouse && spouseAge !== undefined && spouseAge < acaEndAge;
+    const isAcaApplicable = isPrimaryPreMedicare || isSpousePreMedicare;
+    const acaTargetLimitForYear = acaConfig?.targetMagilimit || (hasSpouse ? 84600 : 62600);
+
+    let acaAgiConstrainedWd = 0;
+    let acaNonAgiWdUsed = 0;
+
+    if (acaEnabled && isAcaApplicable) {
+      // -------------------------------------------------------------
+      // ACA OPTIMIZED DRAWDOWN STRATEGY:
+      // Cap AGI-generating draws to maintain ACA subsidy qualification,
+      // bridging remaining cash flow needs using Non-AGI accounts (Cash & Roth).
+      // -------------------------------------------------------------
+      const unavoidableAgi = totalSalary + guarTaxable;
+      const remainingAgiHeadroom = Math.max(0, acaTargetLimitForYear - unavoidableAgi);
+
+      // 1. Draw from pre-tax AGI sources UP TO allowable headroom
+      const allowablePreTaxDraw = Math.min(baseWdTotal, remainingAgiHeadroom);
+      let filledSoFar = 0;
+
+      const totalTdBal = primaryTdBal + spouseTdBal;
+      const tdToDraw = Math.min(allowablePreTaxDraw, totalTdBal);
+
+      if (tdToDraw > 0) {
+        if (canBalanceTd && primaryTdBal > 0 && spouseTdBal > 0) {
+          isSynchronizedTdActive = true;
+          let primTarget = 0;
+          let spTarget = 0;
+
+          if (tdStrategyMethod === 'equal') {
+            const half = tdToDraw / 2;
+            primTarget = Math.min(primaryTdBal, half);
+            spTarget = Math.min(spouseTdBal, half);
+            let rem = tdToDraw - (primTarget + spTarget);
+            if (rem > 0) {
+              if (primaryTdBal > primTarget) {
+                const add = Math.min(primaryTdBal - primTarget, rem);
+                primTarget += add;
+                rem -= add;
+              }
+              if (rem > 0 && spouseTdBal > spTarget) {
+                spTarget += Math.min(spouseTdBal - spTarget, rem);
+              }
+            }
+          } else {
+            primTarget = tdToDraw * (primaryTdBal / totalTdBal);
+            spTarget = tdToDraw * (spouseTdBal / totalTdBal);
+          }
+
+          let primRem = primTarget;
+          primaryTdItems.forEach(item => {
+            const avail = Math.max(0, item.beginBal);
+            const wd = Math.min(avail, primRem);
+            withdrawalsBySource[item.source.id] = wd;
+            primRem -= wd;
+            tdWithdrawalByOwner.primary += wd;
+          });
+
+          let spRem = spTarget;
+          spouseTdItems.forEach(item => {
+            const avail = Math.max(0, item.beginBal);
+            const wd = Math.min(avail, spRem);
+            withdrawalsBySource[item.source.id] = wd;
+            spRem -= wd;
+            tdWithdrawalByOwner.spouse += wd;
+          });
+        } else {
+          let remTd = tdToDraw;
+          const allTd = depletingAccessible.filter(i => i.isTaxDeferred && i.beginBal > 0);
+          allTd.forEach(item => {
+            const avail = Math.max(0, item.beginBal);
+            const wd = Math.min(avail, remTd);
+            withdrawalsBySource[item.source.id] = wd;
+            remTd -= wd;
+            if (item.owner === 'spouse') {
+              tdWithdrawalByOwner.spouse += wd;
+            } else {
+              tdWithdrawalByOwner.primary += wd;
+            }
+          });
+        }
+        filledSoFar += tdToDraw;
+        acaAgiConstrainedWd += tdToDraw;
+      }
+
+      // 2. Fill remaining cash need using Non-AGI sources (Cash and Roth generate 0 AGI)
+      const needNonAgi = Math.max(0, baseWdTotal - filledSoFar);
+      if (needNonAgi > 0) {
+        const nonAgiSources = depletingAccessible
+          .filter(item => isSourceNonAgi(item.source) && item.beginBal > 0)
+          .sort((a, b) => {
+            const aIsCash = isSourceCash(a.source);
+            const bIsCash = isSourceCash(b.source);
+            if (acaConfig?.prioritizeCashBeforeRoth !== false) {
+              if (aIsCash && !bIsCash) return -1;
+              if (!aIsCash && bIsCash) return 1;
+            } else {
+              const aIsRoth = isSourceRoth(a.source);
+              const bIsRoth = isSourceRoth(b.source);
+              if (aIsRoth && !bIsRoth) return -1;
+              if (!aIsRoth && bIsRoth) return 1;
+            }
+            return a.orderKey - b.orderKey;
+          });
+
+        let remNonAgi = needNonAgi;
+        nonAgiSources.forEach(item => {
+          const currentWd = withdrawalsBySource[item.source.id] || 0;
+          const avail = Math.max(0, item.beginBal - currentWd);
+          const wd = Math.min(avail, remNonAgi);
+          if (wd > 0) {
+            withdrawalsBySource[item.source.id] = currentWd + wd;
+            remNonAgi -= wd;
+            filledSoFar += wd;
+            acaNonAgiWdUsed += wd;
+          }
+        });
+      }
+
+      // 3. Fill from Brokerage / Capital gains accounts if still needed
+      const needBrokerage = Math.max(0, baseWdTotal - filledSoFar);
+      if (needBrokerage > 0) {
+        const brokerageSources = depletingAccessible.filter(
+          item => !item.isTaxDeferred && !isSourceNonAgi(item.source) && item.beginBal > 0
+        );
+        let remBrokerage = needBrokerage;
+        brokerageSources.forEach(item => {
+          const currentWd = withdrawalsBySource[item.source.id] || 0;
+          const avail = Math.max(0, item.beginBal - currentWd);
+          const wd = Math.min(avail, remBrokerage);
+          if (wd > 0) {
+            withdrawalsBySource[item.source.id] = currentWd + wd;
+            remBrokerage -= wd;
+            filledSoFar += wd;
+          }
+        });
+      }
+
+      // 4. Safety net: If living expenses are still unfunded, draw remainder from any available balances
+      const stillUnfunded = Math.max(0, baseWdTotal - filledSoFar);
+      if (stillUnfunded > 0) {
+        let remStill = stillUnfunded;
+        depletingAccessible.forEach(item => {
+          const currentWd = withdrawalsBySource[item.source.id] || 0;
+          const avail = Math.max(0, item.beginBal - currentWd);
+          if (avail > 0 && remStill > 0) {
+            const wd = Math.min(avail, remStill);
+            withdrawalsBySource[item.source.id] = currentWd + wd;
+            remStill -= wd;
+            filledSoFar += wd;
+            if (item.isTaxDeferred) {
+              if (item.owner === 'spouse') tdWithdrawalByOwner.spouse += wd;
+              else tdWithdrawalByOwner.primary += wd;
+            }
+          }
+        });
+      }
+    } else if (canBalanceTd) {
       // Find the priority order bounds for the tax-deferred tier
       const tdOrderKeys = [...primaryTdItems, ...spouseTdItems].map(i => i.orderKey);
       const minTdOrderKey = Math.min(...tdOrderKeys);
@@ -686,7 +924,13 @@ export function runSimulation(
         }
       });
 
-      const maxConversion = Math.min(bracketRoom, annualCap, availablePreTax);
+      let maxAllowedByAca = Infinity;
+      if (acaEnabled && isAcaApplicable) {
+        const currentTaxableBeforeConv = totalSalary + guarTaxable + currentTaxableLivingWd;
+        maxAllowedByAca = Math.max(0, acaTargetLimitForYear - currentTaxableBeforeConv);
+      }
+
+      const maxConversion = Math.min(bracketRoom, annualCap, availablePreTax, maxAllowedByAca);
       if (maxConversion > 100) {
         rothConvertedAmount = maxConversion;
         rothConversionTax = maxConversion * (rothConfig.targetBracketRate || rates.fedBracket);
@@ -743,6 +987,25 @@ export function runSimulation(
 
     totalTaxesPaid += totalTax;
     totalWithdrawals += wdTotal;
+
+    // ACA Healthcare Subsidy evaluation for this year
+    const acaMagi = taxableOrdinaryIncome + taxableCapGains;
+    let acaQualified = false;
+    let acaSubsidySavings = 0;
+
+    if (isAcaApplicable) {
+      const unsubsidizedAnnualPrem = acaConfig?.unsubsidizedAnnualPremium ?? (expenses.expMedPremium * 12 > 0 ? expenses.expMedPremium * 12 : 21600);
+      const hSize = (acaConfig?.householdSize ?? (hasSpouse ? 2 : 1)) as 1 | 2;
+      const acaMetrics = calculateAcaSubsidy({
+        magi: acaMagi,
+        householdSize: hSize,
+        unsubsidizedPremium: unsubsidizedAnnualPrem,
+        targetLimit: acaTargetLimitForYear,
+      });
+
+      acaQualified = acaMetrics.qualified;
+      acaSubsidySavings = acaMetrics.subsidyAmount;
+    }
 
     // Find destination accounts for redirected RMD surplus and Roth conversion
     const brokerageAcct = sources.find(s => s.monthly === 'N' && s.taxType === 'Capital Gain') ||
@@ -834,6 +1097,13 @@ export function runSimulation(
       rothConversionTax,
       isSynchronizedTdActive,
       tdWithdrawalByOwner,
+      acaMagi,
+      acaTargetLimit: isAcaApplicable ? acaTargetLimitForYear : undefined,
+      isAcaApplicable,
+      acaQualified,
+      acaSubsidySavings,
+      acaAgiConstrainedWd,
+      acaNonAgiWdUsed,
       withdrawalsBySource,
       guaranteedBySource,
       incomeBySource,
@@ -847,6 +1117,15 @@ export function runSimulation(
 
   const finalBalance = years.length > 0 ? years[years.length - 1].combEndBal : 0;
 
+  let totalAcaSubsidiesSaved = 0;
+  let acaYearsQualified = 0;
+  years.forEach(y => {
+    if (y.isAcaApplicable) {
+      if (y.acaQualified) acaYearsQualified++;
+      if (y.acaSubsidySavings) totalAcaSubsidiesSaved += y.acaSubsidySavings;
+    }
+  });
+
   return {
     years,
     summary: {
@@ -856,7 +1135,81 @@ export function runSimulation(
       totalTaxesPaid,
       totalWithdrawals,
       finalBalance,
+      totalAcaSubsidiesSaved,
+      acaYearsQualified,
     },
+  };
+}
+
+export function compareAcaOptimization(
+  config: PlannerConfig,
+  acaConfig: AcaOptimizationConfig,
+  stressPreset: StressPreset = 'baseline'
+): AcaComparisonResult {
+  const baseline = runSimulation(config, stressPreset, undefined, undefined, { ...acaConfig, enabled: false });
+  const withAca = runSimulation(config, stressPreset, undefined, undefined, { ...acaConfig, enabled: true });
+
+  let totalSubsidiesSaved = 0;
+  let preMedicareYearsSubsidized = 0;
+  let totalPreMedicareYears = 0;
+  let preTaxDrawsDeferredToNonAgi = 0;
+
+  const schedule = withAca.years
+    .filter(y => y.isAcaApplicable)
+    .map(y => {
+      totalPreMedicareYears++;
+      const baseY = baseline.years.find(b => b.calYear === y.calYear) || y;
+      const subsidy = y.acaSubsidySavings ?? 0;
+      totalSubsidiesSaved += subsidy;
+      if (y.acaQualified) {
+        preMedicareYearsSubsidized++;
+      }
+
+      const baselinePreTaxWd = baseY.withdrawalsBySource
+        ? Object.entries(baseY.withdrawalsBySource)
+            .filter(([sId]) => {
+              const s = config.sources.find(src => src.id === sId);
+              return s && isTaxDeferredSource(s);
+            })
+            .reduce((sum, [, val]) => sum + val, 0)
+        : 0;
+
+      const acaPreTaxWd = y.withdrawalsBySource
+        ? Object.entries(y.withdrawalsBySource)
+            .filter(([sId]) => {
+              const s = config.sources.find(src => src.id === sId);
+              return s && isTaxDeferredSource(s);
+            })
+            .reduce((sum, [, val]) => sum + val, 0)
+        : 0;
+
+      const diffPreTax = Math.max(0, baselinePreTaxWd - acaPreTaxWd);
+      preTaxDrawsDeferredToNonAgi += diffPreTax;
+
+      return {
+        year: y.calYear,
+        age: y.age,
+        spouseAge: y.spouseAge,
+        salaryAndGuaranteed: y.salary + y.guarTotal,
+        baselineMagi: baseY.acaMagi ?? (baseY.salary + baseY.guarTaxable + baseY.taxTarget),
+        acaMagi: y.acaMagi ?? (y.salary + y.guarTaxable + y.taxTarget),
+        targetLimit: y.acaTargetLimit ?? acaConfig.targetMagilimit,
+        qualified: Boolean(y.acaQualified),
+        subsidySavings: subsidy,
+        preTaxWd: acaPreTaxWd,
+        nonAgiWd: y.acaNonAgiWdUsed ?? 0,
+      };
+    });
+
+  return {
+    baselineSummary: baseline.summary,
+    acaSummary: withAca.summary,
+    totalSubsidiesSaved,
+    preMedicareYearsSubsidized,
+    totalPreMedicareYears,
+    preTaxDrawsDeferredToNonAgi,
+    finalBalanceDifference: withAca.summary.finalBalance - baseline.summary.finalBalance,
+    schedule,
   };
 }
 

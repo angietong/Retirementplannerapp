@@ -11,6 +11,7 @@ import { PlanTable } from './components/PlanTable';
 import { InputsSection } from './components/InputsSection';
 import { PhaseExplanationCard } from './components/PhaseExplanationCard';
 import { RothConversionSimulator } from './components/RothConversionSimulator';
+import { AcaSubsidySimulator } from './components/AcaSubsidySimulator';
 import { WhatIfComparisonView } from './components/WhatIfComparisonView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
@@ -28,6 +29,7 @@ export function App() {
             ...DEFAULT_CONFIG.expenses,
             ...(parsed.expenses || {}),
           },
+          acaOptimization: parsed.acaOptimization || DEFAULT_CONFIG.acaOptimization,
         };
       } catch (e) {
         console.error('Failed to parse saved config', e);
@@ -36,7 +38,7 @@ export function App() {
     return DEFAULT_CONFIG;
   });
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'table' | 'roth' | 'whatif' | 'inputs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'table' | 'roth' | 'aca' | 'whatif' | 'inputs'>('overview');
   const [dollarMode, setDollarMode] = useState<DollarDisplayMode>('nominal');
   const [activePreset, setActivePreset] = useState<StressPreset>('baseline');
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
@@ -296,7 +298,19 @@ export function App() {
           </div>
         )}
 
-        {/* Tab 5: What-If Optimization Scenarios */}
+        {/* Tab 5: ACA Healthcare Subsidy Optimization */}
+        {activeTab === 'aca' && (
+          <div className="space-y-6">
+            <AcaSubsidySimulator
+              config={config}
+              stressPreset={activePreset}
+              dollarMode={dollarMode}
+              onUpdateConfig={handleConfigChange}
+            />
+          </div>
+        )}
+
+        {/* Tab 6: What-If Optimization Scenarios */}
         {activeTab === 'whatif' && (
           <div className="space-y-6">
             <WhatIfComparisonView
@@ -308,10 +322,14 @@ export function App() {
           </div>
         )}
 
-        {/* Tab 6: Configuration & Income Sources */}
+        {/* Tab 7: Configuration & Income Sources */}
         {activeTab === 'inputs' && (
           <div className="space-y-6">
-            <InputsSection config={config} onChange={handleConfigChange} />
+            <InputsSection
+              config={config}
+              onChange={handleConfigChange}
+              onNavigateToAcaSimulator={() => setActiveTab('aca')}
+            />
           </div>
         )}
       </main>

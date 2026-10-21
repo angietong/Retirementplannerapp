@@ -81,6 +81,14 @@ export function exportToExcel(
     ['Max Annual Conversion Cap', config.rothConversion?.annualCap ?? 50000],
     ['Tax Payment Method', config.rothConversion?.taxPaymentMethod ?? 'outsideBrokerage'],
     [],
+    ['ACA Healthcare Subsidy Drawdown Optimization'],
+    ['ACA Optimization Active?', config.acaOptimization?.enabled ?? false],
+    ['Target MAGI Limit ($)', config.acaOptimization?.targetMagilimit ?? 84600],
+    ['ACA FPL Preset', config.acaOptimization?.preset ?? 'fpl400'],
+    ['Household Size', config.acaOptimization?.householdSize ?? (hasSpouse ? 2 : 1)],
+    ['Unsubsidized Annual Premium ($)', config.acaOptimization?.unsubsidizedAnnualPremium ?? 21600],
+    ['Bridge End Age (Medicare)', config.acaOptimization?.endAge ?? 65],
+    [],
     ['Income & Asset Sources (Up to 20 — lower priority withdrawn first)'],
     ['Source Name', 'Account Category', 'Owner', 'Balance ($)', 'Priority', 'Monthly (Y/N)', 'Tax Type', 'Annual Payment ($)', 'Start Age', 'Notes']
   );
@@ -127,6 +135,9 @@ export function exportToExcel(
     'Capital Gain Tax',
     'Total Tax',
     'Combined End Balance',
+    'ACA MAGI',
+    'ACA Target Limit',
+    'ACA Subsidy Saved',
     'Depleted?'
   ];
 
@@ -141,6 +152,7 @@ export function exportToExcel(
     ['Ending Combined Balance', results.summary.finalBalance],
     ['Total Taxes Projected', results.summary.totalTaxesPaid],
     ['Total Withdrawals Projected', results.summary.totalWithdrawals],
+    ['Total ACA Healthcare Subsidies Saved', results.summary.totalAcaSubsidiesSaved ?? 0],
     [],
     planHeaders
   ];
@@ -169,6 +181,9 @@ export function exportToExcel(
       Math.round(y.capGainTax),
       Math.round(y.totalTax),
       Math.round(y.combEndBal),
+      y.acaMagi !== undefined ? Math.round(y.acaMagi) : '',
+      y.acaTargetLimit !== undefined ? Math.round(y.acaTargetLimit) : '',
+      y.acaQualified && (y.acaSubsidySavings || 0) > 0 ? Math.round(y.acaSubsidySavings || 0) : 0,
       y.depleted ? 'YES' : ''
     ];
     planRows.push(row);

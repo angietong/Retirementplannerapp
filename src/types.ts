@@ -101,6 +101,20 @@ export interface TaxDeferredWithdrawalStrategy {
   method: 'proportional' | 'equal';
 }
 
+export type AcaFplPreset = 'fpl200' | 'fpl250' | 'fpl300' | 'fpl400' | 'custom';
+
+export interface AcaOptimizationConfig {
+  enabled: boolean;
+  preset: AcaFplPreset;
+  householdSize: 1 | 2;
+  customMagilimit?: number;
+  targetMagilimit: number;
+  unsubsidizedAnnualPremium: number;
+  endAge: number;
+  prioritizeCashBeforeRoth?: boolean;
+  adjustMedicalExpensesWithSubsidy?: boolean;
+}
+
 export interface PlannerConfig {
   scenario: ScenarioParams;
   milestones: MilestoneAges;
@@ -111,6 +125,7 @@ export interface PlannerConfig {
   projectionYears: number;
   rothConversion?: RothConversionConfig;
   taxDeferredStrategy?: TaxDeferredWithdrawalStrategy;
+  acaOptimization?: AcaOptimizationConfig;
 }
 
 export interface YearSimulationResult {
@@ -154,6 +169,14 @@ export interface YearSimulationResult {
   // Roth conversion tracking
   rothConvertedAmount?: number;
   rothConversionTax?: number;
+  // ACA Healthcare Subsidy Optimization tracking
+  acaMagi?: number;
+  acaTargetLimit?: number;
+  isAcaApplicable?: boolean;
+  acaQualified?: boolean;
+  acaSubsidySavings?: number;
+  acaAgiConstrainedWd?: number;
+  acaNonAgiWdUsed?: number;
   // Synchronized household pre-tax drawdown tracking
   isSynchronizedTdActive?: boolean;
   tdWithdrawalByOwner?: { primary: number; spouse: number };
@@ -162,6 +185,29 @@ export interface YearSimulationResult {
   incomeBySource: Record<string, number>;
   endBalanceBySource: Record<string, number>;
   beginBalanceBySource: Record<string, number>;
+}
+
+export interface AcaComparisonResult {
+  baselineSummary: PlanSummary;
+  acaSummary: PlanSummary;
+  totalSubsidiesSaved: number;
+  preMedicareYearsSubsidized: number;
+  totalPreMedicareYears: number;
+  preTaxDrawsDeferredToNonAgi: number;
+  finalBalanceDifference: number;
+  schedule: {
+    year: number;
+    age: number;
+    spouseAge?: number;
+    salaryAndGuaranteed: number;
+    baselineMagi: number;
+    acaMagi: number;
+    targetLimit: number;
+    qualified: boolean;
+    subsidySavings: number;
+    preTaxWd: number;
+    nonAgiWd: number;
+  }[];
 }
 
 export interface RothComparisonResult {
@@ -193,6 +239,8 @@ export interface PlanSummary {
   totalTaxesPaid: number;
   totalWithdrawals: number;
   finalBalance: number;
+  totalAcaSubsidiesSaved?: number;
+  acaYearsQualified?: number;
 }
 
 export interface MonteCarloPercentileResult {

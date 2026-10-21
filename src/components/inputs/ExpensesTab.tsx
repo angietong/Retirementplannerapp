@@ -79,6 +79,12 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({
           </div>
         </div>
 
+        <div className="bg-emerald-50/80 border border-emerald-200 rounded-lg p-2.5 text-[11px] text-emerald-900 flex items-center justify-between">
+          <span>
+            💡 <strong>ACA Subsidy Bridge:</strong> You can optimize your drawdown sequence in the <strong>ACA Subsidy Drawdown</strong> tab to cap taxable AGI and qualify for federal health insurance subsidies before age 65.
+          </span>
+        </div>
+
         {/* Post-Medicare Milestone Toggle */}
         <div className="pt-3 border-t border-slate-200">
           <label className="flex items-start gap-2.5 cursor-pointer">

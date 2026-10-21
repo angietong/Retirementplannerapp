@@ -14,14 +14,16 @@ import { ScenarioTab } from './inputs/ScenarioTab';
 import { RatesTab } from './inputs/RatesTab';
 import { ExpensesTab } from './inputs/ExpensesTab';
 import { MajorExpensesTab } from './inputs/MajorExpensesTab';
+import { AcaTab } from './inputs/AcaTab';
 
 interface InputsSectionProps {
   config: PlannerConfig;
   onChange: (updated: PlannerConfig) => void;
+  onNavigateToAcaSimulator?: () => void;
 }
 
-export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }) => {
-  const [activeTab, setActiveTab] = useState<'sources' | 'scenario' | 'rates' | 'expenses' | 'majorExpenses'>('sources');
+export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange, onNavigateToAcaSimulator }) => {
+  const [activeTab, setActiveTab] = useState<'sources' | 'scenario' | 'rates' | 'expenses' | 'majorExpenses' | 'aca'>('sources');
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
 
   const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
@@ -269,6 +271,17 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
             <Sparkles className="w-3.5 h-3.5 text-amber-200" />
             Major Expenses ({majorExpenses.length}/10)
           </button>
+          <button
+            onClick={() => setActiveTab('aca')}
+            className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
+              activeTab === 'aca'
+                ? 'bg-emerald-600 text-white shadow-xs font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            ACA Subsidy Drawdown
+          </button>
         </div>
       </div>
 
@@ -326,6 +339,14 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange }
             onAddMajorExpense={addMajorExpense}
             onRemoveMajorExpense={removeMajorExpense}
             onUpdateMajorExpense={updateMajorExpense}
+          />
+        )}
+
+        {activeTab === 'aca' && (
+          <AcaTab
+            config={config}
+            onChange={onChange}
+            onNavigateToSimulator={onNavigateToAcaSimulator}
           />
         )}
       </div>
