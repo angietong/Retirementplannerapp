@@ -5,7 +5,9 @@ import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 
 // Register service worker for offline standalone support
-registerSW({ immediate: true });
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  registerSW({ immediate: true });
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
