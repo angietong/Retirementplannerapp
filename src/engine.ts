@@ -127,13 +127,15 @@ export function calculateAcaSubsidy({
   householdSize,
   unsubsidizedPremium,
   targetLimit,
+  cumInflation = 1,
 }: {
   magi: number;
   householdSize: 1 | 2;
   unsubsidizedPremium: number;
   targetLimit: number;
+  cumInflation?: number;
 }): { qualified: boolean; subsidyAmount: number; expectedContribution: number; fplRatio: number } {
-  const baseFpl = ACA_FPL_BASE[householdSize] || 21150;
+  const baseFpl = (ACA_FPL_BASE[householdSize] || 21150) * (cumInflation && cumInflation > 0 ? cumInflation : 1);
   const fplRatio = baseFpl > 0 ? magi / baseFpl : 4.0;
 
   if (magi > targetLimit) {
@@ -613,7 +615,9 @@ export function runSimulation(
     const isPrimaryPreMedicare = age < acaEndAge;
     const isSpousePreMedicare = hasSpouse && spouseAge !== undefined && spouseAge < acaEndAge;
     const isAcaApplicable = isPrimaryPreMedicare || isSpousePreMedicare;
-    const acaTargetLimitForYear = acaConfig?.targetMagilimit || (hasSpouse ? 84600 : 62600);
+    const baseAcaTargetLimit = acaConfig?.targetMagilimit || (hasSpouse ? 84600 : 62600);
+    // Project annual inflated ACA income cap matching HHS poverty guideline adjustments
+    const acaTargetLimitForYear = baseAcaTargetLimit * cumGeneralInflation;
 
     let acaAgiConstrainedWd = 0;
     let acaNonAgiWdUsed = 0;
@@ -1008,13 +1012,15 @@ export function runSimulation(
     let acaSubsidySavings = 0;
 
     if (isAcaApplicable) {
-      const unsubsidizedAnnualPrem = acaConfig?.unsubsidizedAnnualPremium ?? (expenses.expMedPremium * 12 > 0 ? expenses.expMedPremium * 12 : 21600);
+      const baseUnsubsidized = acaConfig?.unsubsidizedAnnualPremium ?? (expenses.expMedPremium * 12 > 0 ? expenses.expMedPremium * 12 : 21600);
+      const unsubsidizedAnnualPrem = baseUnsubsidized * cumMedicalInflation;
       const hSize = (acaConfig?.householdSize ?? (hasSpouse ? 2 : 1)) as 1 | 2;
       const acaMetrics = calculateAcaSubsidy({
         magi: acaMagi,
         householdSize: hSize,
         unsubsidizedPremium: unsubsidizedAnnualPrem,
         targetLimit: acaTargetLimitForYear,
+        cumInflation: cumGeneralInflation,
       });
 
       acaQualified = acaMetrics.qualified;
@@ -1113,6 +1119,7 @@ export function runSimulation(
       tdWithdrawalByOwner,
       acaMagi,
       acaTargetLimit: isAcaApplicable ? acaTargetLimitForYear : undefined,
+      acaBaseTargetLimit: isAcaApplicable ? baseAcaTargetLimit : undefined,
       isAcaApplicable,
       acaQualified,
       acaSubsidySavings,
@@ -1209,6 +1216,7 @@ export function compareAcaOptimization(
         baselineMagi: baseY.acaMagi ?? (baseY.salary + baseY.guarTaxable + baseY.taxTarget),
         acaMagi: y.acaMagi ?? (y.salary + y.guarTaxable + y.taxTarget),
         targetLimit: y.acaTargetLimit ?? acaConfig.targetMagilimit,
+        baseTargetLimit: y.acaBaseTargetLimit ?? acaConfig.targetMagilimit,
         qualified: Boolean(y.acaQualified),
         subsidySavings: subsidy,
         preTaxWd: acaPreTaxWd,

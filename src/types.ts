@@ -172,6 +172,7 @@ export interface YearSimulationResult {
   // ACA Healthcare Subsidy Optimization tracking
   acaMagi?: number;
   acaTargetLimit?: number;
+  acaBaseTargetLimit?: number;
   isAcaApplicable?: boolean;
   acaQualified?: boolean;
   acaSubsidySavings?: number;
@@ -204,6 +205,7 @@ export interface AcaComparisonResult {
     baselineMagi: number;
     acaMagi: number;
     targetLimit: number;
+    baseTargetLimit?: number;
     qualified: boolean;
     subsidySavings: number;
     preTaxWd: number;

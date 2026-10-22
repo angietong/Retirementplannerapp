@@ -318,6 +318,36 @@ test('ACA optimization restricts pre-tax draws to target limit and bridges with 
   }
 });
 
+test('ACA target limit incorporates projected inflation every year', () => {
+  const acaConfig = {
+    enabled: true,
+    preset: 'fpl400' as AcaFplPreset,
+    householdSize: 2 as const,
+    targetMagilimit: 84600,
+    customMagilimit: 84600,
+    unsubsidizedAnnualPremium: 21600,
+    endAge: 65,
+    prioritizeCashBeforeRoth: true,
+    adjustMedicalExpensesWithSubsidy: false,
+  };
+
+  const res = runSimulation(DEFAULT_CONFIG, 'baseline', undefined, undefined, acaConfig);
+  const preMedYears = res.years.filter(y => y.isAcaApplicable && y.acaTargetLimit !== undefined);
+  assert(preMedYears.length > 1, 'Should have multiple pre-Medicare years');
+
+  // Verify that target limit increases year-over-year with inflation
+  for (let i = 1; i < preMedYears.length; i++) {
+    const prev = preMedYears[i - 1].acaTargetLimit!;
+    const curr = preMedYears[i].acaTargetLimit!;
+    assert(curr > prev, `Year ${preMedYears[i].calYear} limit ($${curr}) should be greater than previous year ($${prev})`);
+  }
+
+  const y0 = preMedYears[0];
+  const yLast = preMedYears[preMedYears.length - 1];
+  console.log(`     -> Year ${y0.calYear} (Age ${y0.age}): ACA Cap = $${Math.round(y0.acaTargetLimit!).toLocaleString()}`);
+  console.log(`     -> Year ${yLast.calYear} (Age ${yLast.age}): ACA Cap = $${Math.round(yLast.acaTargetLimit!).toLocaleString()} (compounded with inflation)`);
+});
+
 test('Phase 0 special logic: Draws high-priority tax-deferred accounts as income when partial salary exceeds ACA limit', () => {
   // Configure salary ($50.5k partial) exceeding ACA target limit ($42.3k at 200% FPL)
   // while having a living expense deficit to fund for remaining months

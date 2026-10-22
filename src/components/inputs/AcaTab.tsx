@@ -124,7 +124,7 @@ export const AcaTab: React.FC<AcaTabProps> = ({ config, onChange, onNavigateToSi
             <option value="custom">Custom Dollar Limit...</option>
           </select>
           <p className="text-[10px] text-slate-500 mt-1">
-            Target Annual MAGI: <strong className="text-slate-800">{formatCurrency(acaConfig.targetMagilimit)}</strong>
+            Target Base MAGI: <strong className="text-slate-800">{formatCurrency(acaConfig.targetMagilimit)}</strong> (automatically inflates annually with projected CPI-U).
           </p>
         </div>
 

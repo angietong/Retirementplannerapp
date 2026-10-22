@@ -313,7 +313,7 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            Years where household MAGI stayed under the {formatCurrency(acaConfig.targetMagilimit)} cap.
+            Years where household MAGI stayed under the {formatCurrency(acaConfig.targetMagilimit)} cap (inflated annually with CPI-U).
           </p>
         </div>
 
@@ -474,7 +474,7 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
             </p>
           </div>
           <div className="text-xs text-slate-600 bg-white px-3 py-1 rounded-md border border-slate-200">
-            Target Cap: <strong className="text-slate-900">{formatCurrency(acaConfig.targetMagilimit)}</strong>
+            Base Cap: <strong className="text-slate-900">{formatCurrency(acaConfig.targetMagilimit)}</strong> (inflates annually)
           </div>
         </div>
 
@@ -489,7 +489,7 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
                 <th className="py-3 px-3 text-right">Pre-Tax (401k/IRA)</th>
                 <th className="py-3 px-3 text-right">Non-AGI (Cash/Roth)</th>
                 <th className="py-3 px-3 text-right font-bold text-slate-900">Total ACA MAGI</th>
-                <th className="py-3 px-3 text-right">Target Limit</th>
+                <th className="py-3 px-3 text-right" title="Target MAGI cap projected with annual general inflation (CPI-U)">Target Limit (Inflated)</th>
                 <th className="py-3 px-3 text-center">Subsidy Status</th>
                 <th className="py-3 px-3 text-right font-bold text-emerald-700">Subsidy Saved</th>
               </tr>
