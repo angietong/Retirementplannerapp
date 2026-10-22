@@ -15,6 +15,34 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="RetirePlan" />
+    <script>
+      // Safe WebSocket guard for Vite client in iframe / proxy environments
+      if (typeof window !== 'undefined' && window.WebSocket) {
+        const origSend = window.WebSocket.prototype.send;
+        window.WebSocket.prototype.send = function(...args) {
+          if (this.readyState === window.WebSocket.OPEN) {
+            try {
+              return origSend.apply(this, args);
+            } catch (err) {
+              // Ignore WebSocket send failure in iframe proxy environment
+            }
+          }
+        };
+        window.addEventListener('unhandledrejection', function(e) {
+          if (e.reason && (e.reason.message?.includes?.('vite') || e.reason.stack?.includes?.('@vite/client') || e.reason.stack?.includes?.('WebSocket'))) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        });
+        window.addEventListener('error', function(e) {
+          if (e.message && (e.message.includes('WebSocket') || e.message.includes('@vite/client') || e.filename?.includes?.('@vite/client'))) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return true;
+          }
+        });
+      }
+    </script>
     <script type="module" crossorigin src="/assets/index-ohslQzxE.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-aH6Mc5dH.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
