@@ -209,11 +209,18 @@ export const AcaTab: React.FC<AcaTabProps> = ({ config, onChange, onNavigateToSi
       {/* Info Callout */}
       <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
         <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-        <p className="leading-relaxed">
-          <strong>How the algorithm executes:</strong> When living expenses exceed your target AGI cap, the simulation
-          draws pre-tax 401(k)/IRA balances only up to the limit. The remaining living expenses are funded from Cash and Roth accounts
-          (which produce 0 AGI). Once Medicare starts at age {acaConfig.endAge}, normal liquidation priority resumes.
-        </p>
+        <div className="space-y-1.5 leading-relaxed">
+          <p>
+            <strong>How the algorithm executes:</strong> When living expenses exceed your target AGI cap, the simulation
+            draws pre-tax 401(k)/IRA balances only up to the limit. The remaining living expenses are funded from Cash and Roth accounts
+            (which produce 0 AGI). Once Medicare starts at age {acaConfig.endAge}, normal liquidation priority resumes.
+          </p>
+          <p className="text-[11px] text-blue-800">
+            <strong>Phase 0 Transition Logic:</strong> If partial-year earned wages in your retirement year already exceed your ACA limit,
+            the planner draws from high-priority tax-deferred accounts as income instead of draining Cash/Roth reserves, preserving your
+            non-AGI assets for full retirement years where subsidies can actually be captured.
+          </p>
+        </div>
       </div>
     </div>
   );

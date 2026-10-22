@@ -617,6 +617,7 @@ export function runSimulation(
 
     let acaAgiConstrainedWd = 0;
     let acaNonAgiWdUsed = 0;
+    let isPhase0AcaIncomeOverride = false;
 
     if (acaEnabled && isAcaApplicable) {
       // -------------------------------------------------------------
@@ -625,10 +626,23 @@ export function runSimulation(
       // bridging remaining cash flow needs using Non-AGI accounts (Cash & Roth).
       // -------------------------------------------------------------
       const unavoidableAgi = totalSalary + guarTaxable;
-      const remainingAgiHeadroom = Math.max(0, acaTargetLimitForYear - unavoidableAgi);
+      const isPhase0SalaryExceededAca = phase === 0 && unavoidableAgi >= acaTargetLimitForYear;
 
-      // 1. Draw from pre-tax AGI sources UP TO allowable headroom
-      const allowablePreTaxDraw = Math.min(baseWdTotal, remainingAgiHeadroom);
+      // 1. Draw from pre-tax AGI sources:
+      // SPECIAL LOGIC FOR PHASE 0:
+      // When partial worked year wages/unavoidable income already exceed the ACA subsidy limit,
+      // subsidy qualification is already impossible for this transition year regardless of withdrawals.
+      // Instead of capping pre-tax draws to $0 and prematurely burning precious tax-free Cash/Roth reserves,
+      // use high priority tax-deferred sources as income to cover the living expense withdrawal shortfall.
+      // This preserves Cash and Roth accounts for future pre-Medicare retirement years where subsidies CAN be captured.
+      let allowablePreTaxDraw = 0;
+      if (isPhase0SalaryExceededAca) {
+        allowablePreTaxDraw = baseWdTotal;
+        isPhase0AcaIncomeOverride = true;
+      } else {
+        const remainingAgiHeadroom = Math.max(0, acaTargetLimitForYear - unavoidableAgi);
+        allowablePreTaxDraw = Math.min(baseWdTotal, remainingAgiHeadroom);
+      }
       let filledSoFar = 0;
 
       const totalTdBal = primaryTdBal + spouseTdBal;
@@ -1104,6 +1118,7 @@ export function runSimulation(
       acaSubsidySavings,
       acaAgiConstrainedWd,
       acaNonAgiWdUsed,
+      isPhase0AcaIncomeOverride,
       withdrawalsBySource,
       guaranteedBySource,
       incomeBySource,
@@ -1198,6 +1213,7 @@ export function compareAcaOptimization(
         subsidySavings: subsidy,
         preTaxWd: acaPreTaxWd,
         nonAgiWd: y.acaNonAgiWdUsed ?? 0,
+        phase0IncomeOverride: Boolean(y.isPhase0AcaIncomeOverride),
       };
     });
 

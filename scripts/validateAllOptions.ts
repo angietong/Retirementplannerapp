@@ -318,6 +318,54 @@ test('ACA optimization restricts pre-tax draws to target limit and bridges with 
   }
 });
 
+test('Phase 0 special logic: Draws high-priority tax-deferred accounts as income when partial salary exceeds ACA limit', () => {
+  // Configure salary ($50.5k partial) exceeding ACA target limit ($42.3k at 200% FPL)
+  // while having a living expense deficit to fund for remaining months
+  const phase0HighSalaryConfig = {
+    ...DEFAULT_CONFIG,
+    scenario: {
+      ...DEFAULT_CONFIG.scenario,
+      retSalary: 102000, // 6 months worked = $50,580 > $42,300 ACA limit
+      spouseRetSalary: 0,
+    },
+    acaOptimization: {
+      enabled: true,
+      preset: 'fpl200' as AcaFplPreset,
+      householdSize: 2 as const,
+      targetMagilimit: 42300,
+      customMagilimit: 42300,
+      unsubsidizedAnnualPremium: 21600,
+      endAge: 65,
+      prioritizeCashBeforeRoth: true,
+      adjustMedicalExpensesWithSubsidy: false,
+    },
+  };
+
+  const res = runSimulation(phase0HighSalaryConfig, 'baseline');
+  const phase0 = res.years[0];
+
+  assert(phase0.phase === 0, 'Year 0 should be phase 0');
+  assert(phase0.salary >= 42300, 'Phase 0 salary should exceed ACA limit');
+  assert(phase0.isPhase0AcaIncomeOverride === true, 'isPhase0AcaIncomeOverride must be true');
+
+  // Verify that high priority tax-deferred accounts were drawn to satisfy living expenses
+  const tdDraw = (phase0.tdWithdrawalByOwner?.primary || 0) + (phase0.tdWithdrawalByOwner?.spouse || 0);
+  assert(tdDraw > 0, 'Should draw from tax-deferred accounts as income in Phase 0');
+  assert(phase0.acaNonAgiWdUsed === 0, 'Cash & Roth non-AGI accounts should be completely preserved (0 drawn)');
+
+  // Verify Cash account balance was not depleted in Phase 0
+  const cashSource = phase0HighSalaryConfig.sources.find(s => s.accountType === 'cash');
+  if (cashSource) {
+    const cashEndBal = phase0.endBalanceBySource[cashSource.id];
+    assert(cashEndBal > 0, 'Cash balance should remain preserved in Phase 0');
+  }
+
+  console.log('     -> Phase 0 Salary:              $' + Math.round(phase0.salary).toLocaleString());
+  console.log('     -> ACA Target Limit:            $' + Math.round(phase0.acaTargetLimit || 0).toLocaleString());
+  console.log('     -> Tax-Deferred Income Drawn:   $' + Math.round(tdDraw).toLocaleString());
+  console.log('     -> Non-AGI (Cash/Roth) Burned:  $' + Math.round(phase0.acaNonAgiWdUsed || 0).toLocaleString() + ' (Fully Preserved!)');
+});
+
 // -------------------------------------------------------------
 // 9. WHAT-IF OPTIMIZATION SCENARIOS COMPARISON
 // -------------------------------------------------------------

@@ -177,6 +177,7 @@ export interface YearSimulationResult {
   acaSubsidySavings?: number;
   acaAgiConstrainedWd?: number;
   acaNonAgiWdUsed?: number;
+  isPhase0AcaIncomeOverride?: boolean;
   // Synchronized household pre-tax drawdown tracking
   isSynchronizedTdActive?: boolean;
   tdWithdrawalByOwner?: { primary: number; spouse: number };
@@ -207,6 +208,7 @@ export interface AcaComparisonResult {
     subsidySavings: number;
     preTaxWd: number;
     nonAgiWd: number;
+    phase0IncomeOverride?: boolean;
   }[];
 }
 

@@ -541,14 +541,22 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
                         {formatCurrency(limitAdj)}
                       </td>
                       <td className="py-2.5 px-3 text-center font-sans">
-                        {s.qualified ? (
+                        {s.phase0IncomeOverride ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-100/90 border border-amber-300 px-2 py-0.5 rounded-full"
+                            title="Partial worked year wages already exceeded the ACA limit. High-priority tax-deferred accounts were tapped for living income, preserving Cash & Roth reserves for future subsidy years."
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-700" />
+                            PHASE 0: PRE-TAX INCOME
+                          </span>
+                        ) : s.qualified ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
                             <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                             QUALIFIED
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-full">
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">
+                            <AlertTriangle className="w-3 h-3 text-slate-500" />
                             OVER LIMIT
                           </span>
                         )}
@@ -571,26 +579,33 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
           <HelpCircle className="w-4 h-4 text-emerald-600" />
           Strategic Best Practices for ACA Subsidy Planning
         </h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-slate-600">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-slate-600">
           <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
             <span className="font-bold text-slate-900 block">1. The "ACA Bridge" Concept</span>
-            <p className="leading-relaxed">
-              Between retirement (e.g. age 58–60) and Medicare at 65, your biggest non-discretionary cost is private health insurance.
-              Using your Cash reserves and Roth accounts as a bridge allows you to live comfortably while reporting low taxable AGI.
+            <p className="leading-relaxed text-[11px]">
+              Between retirement and Medicare at 65, private health insurance is costly.
+              Using Cash reserves and Roth accounts as a bridge allows you to live comfortably while reporting low taxable AGI.
             </p>
           </div>
           <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
-            <span className="font-bold text-slate-900 block">2. Why Draw Some Pre-Tax?</span>
-            <p className="leading-relaxed">
+            <span className="font-bold text-slate-900 block">2. Why Draw Pre-Tax Income?</span>
+            <p className="leading-relaxed text-[11px]">
               You do not need $0 of AGI! Drawing pre-tax money up to the ACA threshold (e.g. $84,600 for a couple) allows you to pay low
-              income tax (e.g. standard deduction + 10%–12% brackets) without paying a cent in lost health subsidies.
+              income tax (standard deduction + 10%–12% brackets) without losing health subsidies.
             </p>
           </div>
           <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
             <span className="font-bold text-slate-900 block">3. Coordinating Roth Conversions</span>
-            <p className="leading-relaxed">
+            <p className="leading-relaxed text-[11px]">
               When ACA optimization is enabled, the simulator automatically holds systematic Roth conversions below your target AGI ceiling
               to prevent accidental subsidy disqualification until Medicare kicks in at age 65.
+            </p>
+          </div>
+          <div className="p-3 bg-white rounded-lg border border-amber-200 bg-amber-50/50 space-y-1">
+            <span className="font-bold text-amber-950 block">4. Phase 0 Transition Year</span>
+            <p className="leading-relaxed text-[11px] text-amber-900">
+              When partial-year earned wages already exceed the ACA limit, the planner taps high-priority tax-deferred accounts for living income
+              instead of burning cash/Roth, preserving non-AGI assets for full retirement years.
             </p>
           </div>
         </div>
