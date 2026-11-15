@@ -21,7 +21,7 @@ import {
   AcaOptimizationConfig,
   AcaFplPreset,
 } from '../types';
-import { compareAcaOptimization, isSourceCash, isSourceRoth } from '../engine';
+import { compareAcaOptimization, isSourceCash, isSourceRoth, resolveAcaCreditAccount } from '../engine';
 import { ACA_FPL_BASE, getAcaFplLimit } from '../defaultData';
 import { formatCurrency } from '../utils/formatters';
 
@@ -54,10 +54,30 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
         unsubsidizedAnnualPremium: config.expenses.expMedPremium * 12 > 0 ? config.expenses.expMedPremium * 12 : (hasSpouse ? 21600 : 13200),
         endAge: config.milestones.medicareAge || 65,
         prioritizeCashBeforeRoth: true,
-        adjustMedicalExpensesWithSubsidy: false,
+        adjustMedicalExpensesWithSubsidy: true,
       }
     );
   }, [config.acaOptimization, defaultHouseholdSize, hasSpouse, config.expenses.expMedPremium, config.milestones.medicareAge]);
+
+  const depletingAccounts = useMemo(() => {
+    return config.sources
+      .filter(s => s.monthly === 'N')
+      .sort((a, b) => {
+        const aCash = isSourceCash(a) ? 0 : (a.taxType === 'Capital Gain' || a.accountType === 'brokerage' ? 1 : 2);
+        const bCash = isSourceCash(b) ? 0 : (b.taxType === 'Capital Gain' || b.accountType === 'brokerage' ? 1 : 2);
+        if (aCash !== bCash) return aCash - bCash;
+        return a.priority - b.priority;
+      });
+  }, [config.sources]);
+
+  const resolvedCreditAcct = useMemo(
+    () => resolveAcaCreditAccount(config.sources, acaConfig),
+    [config.sources, acaConfig]
+  );
+  const selectedCreditValue =
+    acaConfig.adjustMedicalExpensesWithSubsidy === false || acaConfig.creditAccountId === '__none__'
+      ? '__none__'
+      : resolvedCreditAcct?.id || '__none__';
 
   const comparison = useMemo(() => {
     return compareAcaOptimization(config, acaConfig, stressPreset);
@@ -268,24 +288,50 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
             </p>
           </div>
 
-          {/* Reinvest Subsidy Savings */}
-          <div className="md:col-span-3 pt-3 border-t border-slate-100">
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={Boolean(acaConfig.adjustMedicalExpensesWithSubsidy)}
-                onChange={e => updateAcaConfig({ adjustMedicalExpensesWithSubsidy: e.target.checked })}
-                className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
-              />
-              <div>
-                <span className="text-xs font-semibold text-slate-800">
-                  Credit Subsidy Savings to Portfolio (Reinvest Healthcare Credits)
-                </span>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  When enabled, annual ACA premium tax credits are directly credited to your portfolio cash reserve, so subsidy savings compound and preserve portfolio longevity.
-                </p>
+          {/* Account to Credit ACA Subsidy Savings Back To */}
+          <div className="md:col-span-2 lg:col-span-4 pt-3 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="sm:w-1/2">
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Account to Credit ACA Subsidy Back To
+                </label>
+                <select
+                  value={selectedCreditValue}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === '__none__') {
+                      updateAcaConfig({
+                        adjustMedicalExpensesWithSubsidy: false,
+                        creditAccountId: '__none__',
+                      });
+                    } else {
+                      updateAcaConfig({
+                        adjustMedicalExpensesWithSubsidy: true,
+                        creditAccountId: val,
+                      });
+                    }
+                  }}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-900 bg-white font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                >
+                  {depletingAccounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} {isSourceCash(acc) ? '(Savings / Cash — Recommended Default)' : `(${acc.taxType})`}
+                    </option>
+                  ))}
+                  <option value="__none__">None — Do not credit ACA subsidy back to any account</option>
+                </select>
               </div>
-            </label>
+              <p className="text-[11px] text-slate-500 sm:w-1/2 sm:mt-4">
+                {resolvedCreditAcct ? (
+                  <>
+                    Earned ACA premium credits are deposited back into{' '}
+                    <strong className="text-emerald-700">{resolvedCreditAcct.name}</strong> in each qualifying year, allowing the credit to compound inside your portfolio.
+                  </>
+                ) : (
+                  'Subsidy credits are tracked in the schedule for reference only and are not deposited back into any portfolio account.'
+                )}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -602,7 +648,12 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
                         )}
                       </td>
                       <td className="py-2.5 px-3 text-right font-bold text-emerald-600">
-                        {subsidyAdj > 0 ? `+${formatCurrency(subsidyAdj)}` : '$0'}
+                        <div>{subsidyAdj > 0 ? `+${formatCurrency(subsidyAdj)}` : '$0'}</div>
+                        {subsidyAdj > 0 && s.creditedToAccountName && (
+                          <div className="text-[10px] font-sans font-medium text-emerald-700">
+                            &rarr; {s.creditedToAccountName}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

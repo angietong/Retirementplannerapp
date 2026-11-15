@@ -310,8 +310,9 @@ export function runWhatIfComparisons(
       config.acaOptimization?.unsubsidizedAnnualPremium ??
       (config.expenses.expMedPremium * 12 > 0 ? config.expenses.expMedPremium * 12 : isMfj ? 21600 : 13200),
     endAge: config.milestones.medicareAge || 65,
-    prioritizeCashBeforeRoth: true,
-    adjustMedicalExpensesWithSubsidy: false,
+    prioritizeCashBeforeRoth: config.acaOptimization?.prioritizeCashBeforeRoth ?? true,
+    adjustMedicalExpensesWithSubsidy: config.acaOptimization?.adjustMedicalExpensesWithSubsidy ?? true,
+    creditAccountId: config.acaOptimization?.creditAccountId,
   };
 
   const acaSim = runSimulation(config, stressPreset, undefined, undefined, acaTestConfig);

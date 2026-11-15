@@ -376,6 +376,18 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                                         : '$0 (Over limit)'}
                                     </span>
                                   </div>
+                                  {y.acaQualified && (y.acaSubsidySavings || 0) > 0 && (
+                                    <div className="flex justify-between text-[11px] text-slate-600">
+                                      <span>Credited Back To:</span>
+                                      {y.acaCreditAccountName && (y.acaCreditedAmount || 0) > 0 ? (
+                                        <strong className="text-emerald-700">
+                                          +{formatCurrency((y.acaCreditedAmount || 0) / deflator)} &rarr; {y.acaCreditAccountName}
+                                        </strong>
+                                      ) : (
+                                        <span className="text-slate-400 italic">Not credited (disabled in ACA settings)</span>
+                                      )}
+                                    </div>
+                                  )}
                                   {y.acaNonAgiWdUsed !== undefined && y.acaNonAgiWdUsed > 0 && (
                                     <div className="text-[10px] text-emerald-700 pt-0.5">
                                       Shielded {formatCurrency(y.acaNonAgiWdUsed / deflator)} via Cash/Roth Non-AGI bridge.
@@ -445,6 +457,14 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                                           <span className={wd > 0 ? 'text-indigo-600 font-bold' : 'text-slate-400'}>
                                             W/D: {wd > 0 ? formatCurrency(wd) : '$0'}
                                           </span>
+                                          {y.acaCreditAccountId === s.id && (y.acaCreditedAmount || 0) > 0 && (
+                                            <span
+                                              className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold"
+                                              title="ACA Healthcare Subsidy Credit deposited back into this account before annual return compounding"
+                                            >
+                                              +ACA Credit: {formatCurrency((y.acaCreditedAmount || 0) / deflator)}
+                                            </span>
+                                          )}
                                           <span className="text-slate-800 font-medium">End: {formatCurrency(end)}</span>
                                         </div>
                                       </div>

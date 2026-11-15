@@ -41,7 +41,8 @@ export const DEFAULT_ACA_CONFIG: AcaOptimizationConfig = {
   unsubsidizedAnnualPremium: 21600, // ~$1,800/mo unsubsidized private Silver policy for couple pre-65
   endAge: 65, // Medicare eligibility milestone
   prioritizeCashBeforeRoth: true,
-  adjustMedicalExpensesWithSubsidy: false,
+  adjustMedicalExpensesWithSubsidy: true,
+  creditAccountId: 'src-5',
 };
 
 export const DEFAULT_MAJOR_EXPENSES: MajorExpense[] = [

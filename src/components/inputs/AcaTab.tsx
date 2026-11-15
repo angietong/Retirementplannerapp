@@ -2,6 +2,7 @@ import React from 'react';
 import { ShieldCheck, HeartPulse, Sliders, Info, CheckCircle2 } from 'lucide-react';
 import { PlannerConfig, AcaOptimizationConfig, AcaFplPreset } from '../../types';
 import { ACA_FPL_BASE, getAcaFplLimit } from '../../defaultData';
+import { isSourceCash, resolveAcaCreditAccount } from '../../engine';
 import { formatCurrency } from '../../utils/formatters';
 
 interface AcaTabProps {
@@ -23,8 +24,23 @@ export const AcaTab: React.FC<AcaTabProps> = ({ config, onChange, onNavigateToSi
     unsubsidizedAnnualPremium: config.expenses.expMedPremium * 12 > 0 ? config.expenses.expMedPremium * 12 : (hasSpouse ? 21600 : 13200),
     endAge: config.milestones.medicareAge || 65,
     prioritizeCashBeforeRoth: true,
-    adjustMedicalExpensesWithSubsidy: false,
+    adjustMedicalExpensesWithSubsidy: true,
   };
+
+  const depletingAccounts = config.sources
+    .filter(s => s.monthly === 'N')
+    .sort((a, b) => {
+      const aCash = isSourceCash(a) ? 0 : (a.taxType === 'Capital Gain' || a.accountType === 'brokerage' ? 1 : 2);
+      const bCash = isSourceCash(b) ? 0 : (b.taxType === 'Capital Gain' || b.accountType === 'brokerage' ? 1 : 2);
+      if (aCash !== bCash) return aCash - bCash;
+      return a.priority - b.priority;
+    });
+
+  const resolvedCreditAcct = resolveAcaCreditAccount(config.sources, acaConfig);
+  const selectedCreditValue =
+    acaConfig.adjustMedicalExpensesWithSubsidy === false || acaConfig.creditAccountId === '__none__'
+      ? '__none__'
+      : resolvedCreditAcct?.id || '__none__';
 
   const updateAcaConfig = (partial: Partial<AcaOptimizationConfig>) => {
     const updated = { ...acaConfig, ...partial };
@@ -205,24 +221,46 @@ export const AcaTab: React.FC<AcaTabProps> = ({ config, onChange, onNavigateToSi
           </p>
         </div>
 
-        {/* Reinvest Subsidy Savings */}
-        <div className="md:col-span-2 pt-2 border-t border-slate-100">
-          <label className="flex items-start gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={Boolean(acaConfig.adjustMedicalExpensesWithSubsidy)}
-              onChange={e => updateAcaConfig({ adjustMedicalExpensesWithSubsidy: e.target.checked })}
-              className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
-            />
-            <div>
-              <span className="text-xs font-semibold text-slate-800">
-                Credit Subsidy Savings to Portfolio (Reinvest Premium Credits)
-              </span>
-              <p className="text-[10px] text-slate-500 mt-0.5">
-                When enabled, qualified annual ACA premium tax credits directly preserve portfolio capital by crediting savings to your cash/brokerage reserve.
-              </p>
-            </div>
+        {/* Account to Credit ACA Subsidy Savings Back To */}
+        <div className="sm:col-span-2 pt-3 border-t border-slate-100">
+          <label className="block text-xs font-semibold text-slate-700 mb-1">
+            Account to Credit ACA Subsidy Savings Back To
           </label>
+          <select
+            value={selectedCreditValue}
+            onChange={e => {
+              const val = e.target.value;
+              if (val === '__none__') {
+                updateAcaConfig({
+                  adjustMedicalExpensesWithSubsidy: false,
+                  creditAccountId: '__none__',
+                });
+              } else {
+                updateAcaConfig({
+                  adjustMedicalExpensesWithSubsidy: true,
+                  creditAccountId: val,
+                });
+              }
+            }}
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 bg-white focus:outline-emerald-500 font-medium"
+          >
+            {depletingAccounts.map(acc => (
+              <option key={acc.id} value={acc.id}>
+                {acc.name} {isSourceCash(acc) ? '(Savings / Cash — Recommended Default)' : `(${acc.taxType})`}
+              </option>
+            ))}
+            <option value="__none__">None — Do not credit ACA subsidy back to any account</option>
+          </select>
+          <p className="text-[10px] text-slate-500 mt-1">
+            {resolvedCreditAcct ? (
+              <>
+                In any pre-Medicare year where household MAGI stays under the ACA limit, the earned tax credit is added directly back to{' '}
+                <strong className="text-emerald-700">{resolvedCreditAcct.name}</strong> before annual investment growth.
+              </>
+            ) : (
+              'Subsidy savings will be tracked in the ACA schedule only without increasing any account balance.'
+            )}
+          </p>
         </div>
       </div>
 

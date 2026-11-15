@@ -113,6 +113,7 @@ export interface AcaOptimizationConfig {
   endAge: number;
   prioritizeCashBeforeRoth?: boolean;
   adjustMedicalExpensesWithSubsidy?: boolean;
+  creditAccountId?: string;
 }
 
 export interface PlannerConfig {
@@ -179,6 +180,9 @@ export interface YearSimulationResult {
   acaAgiConstrainedWd?: number;
   acaNonAgiWdUsed?: number;
   isPhase0AcaIncomeOverride?: boolean;
+  acaCreditAccountId?: string;
+  acaCreditAccountName?: string;
+  acaCreditedAmount?: number;
   // Synchronized household pre-tax drawdown tracking
   isSynchronizedTdActive?: boolean;
   tdWithdrawalByOwner?: { primary: number; spouse: number };
@@ -211,6 +215,7 @@ export interface AcaComparisonResult {
     preTaxWd: number;
     nonAgiWd: number;
     phase0IncomeOverride?: boolean;
+    creditedToAccountName?: string;
   }[];
 }
 

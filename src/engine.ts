@@ -9,6 +9,7 @@ import {
   AcaOptimizationConfig,
   AcaComparisonResult,
   MonteCarloPercentileResult,
+  IncomeSource,
 } from './types';
 import { ACA_FPL_BASE } from './defaultData';
 
@@ -122,6 +123,30 @@ export function isSourceRoth(s: { taxType: string; accountType?: string; name: s
   if (type === 'roth') return true;
   const lower = s.name.toLowerCase();
   return lower.includes('roth');
+}
+
+export function resolveAcaCreditAccount(
+  sources: IncomeSource[],
+  acaConfig?: AcaOptimizationConfig
+): IncomeSource | null {
+  if (!acaConfig) return null;
+  if (acaConfig.adjustMedicalExpensesWithSubsidy === false || acaConfig.creditAccountId === '__none__') {
+    return null;
+  }
+  const nonMonthly = sources.filter(src => src.monthly === 'N');
+  if (nonMonthly.length === 0) return null;
+
+  if (acaConfig.creditAccountId) {
+    const explicit = nonMonthly.find(src => src.id === acaConfig.creditAccountId);
+    if (explicit) return explicit;
+  }
+
+  // Default preference: Cash/Savings account first, then Brokerage, then first depleting account
+  return (
+    nonMonthly.find(src => isSourceCash(src)) ||
+    nonMonthly.find(src => src.taxType === 'Capital Gain' || src.accountType === 'brokerage') ||
+    nonMonthly[0]
+  );
 }
 
 export function calculateAcaSubsidy({
@@ -1084,7 +1109,7 @@ export function runSimulation(
     totalWithdrawals += wdTotal;
 
     // ACA Healthcare Subsidy evaluation for this year
-    const acaMagi = taxableOrdinaryIncome + taxableCapGains;
+    const acaMagi = taxableOrdinaryIncome + taxableCapGains + rothConvertedAmount;
     let acaQualified = false;
     let acaSubsidySavings = 0;
 
@@ -1103,6 +1128,11 @@ export function runSimulation(
       acaQualified = acaMetrics.qualified;
       acaSubsidySavings = acaMetrics.subsidyAmount;
     }
+
+    const acaDestAcct = (isAcaApplicable && acaQualified && acaSubsidySavings > 0)
+      ? resolveAcaCreditAccount(sources, acaConfig)
+      : null;
+    const acaCreditedAmount = acaDestAcct ? acaSubsidySavings : 0;
 
     // End balances and Total Income per source
     const endBalanceBySource: Record<string, number> = {};
@@ -1131,13 +1161,9 @@ export function runSimulation(
           remaining += netToRoth;
         }
 
-        // Reinvest/credit ACA subsidy savings into cash or brokerage account if configured
-        if (acaConfig?.adjustMedicalExpensesWithSubsidy && acaSubsidySavings > 0) {
-          const acaDestAcct = sources.find(src => src.monthly === 'N' && (isSourceCash(src) || src.taxType === 'Capital Gain')) ||
-            sources.find(src => src.monthly === 'N');
-          if (acaDestAcct && s.id === acaDestAcct.id) {
-            remaining += acaSubsidySavings;
-          }
+        // Reinvest/credit ACA subsidy savings into chosen account (defaults to Savings/Cash)
+        if (acaDestAcct && s.id === acaDestAcct.id && acaCreditedAmount > 0) {
+          remaining += acaCreditedAmount;
         }
 
         const endBal = remaining * (1 + effInvestRate);
@@ -1208,6 +1234,9 @@ export function runSimulation(
       acaAgiConstrainedWd,
       acaNonAgiWdUsed,
       isPhase0AcaIncomeOverride,
+      acaCreditAccountId: acaDestAcct?.id,
+      acaCreditAccountName: acaDestAcct?.name,
+      acaCreditedAmount,
       withdrawalsBySource,
       guaranteedBySource,
       incomeBySource,
@@ -1304,6 +1333,7 @@ export function compareAcaOptimization(
         preTaxWd: acaPreTaxWd,
         nonAgiWd: y.acaNonAgiWdUsed ?? 0,
         phase0IncomeOverride: Boolean(y.isPhase0AcaIncomeOverride),
+        creditedToAccountName: y.acaCreditAccountName,
       };
     });
 

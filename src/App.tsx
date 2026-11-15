@@ -55,6 +55,12 @@ function loadSavedConfig(): PlannerConfig {
       acaOptimization: {
         ...DEFAULT_CONFIG.acaOptimization,
         ...(parsed.acaOptimization || {}),
+        adjustMedicalExpensesWithSubsidy:
+          parsed.acaOptimization?.creditAccountId !== undefined
+            ? parsed.acaOptimization.adjustMedicalExpensesWithSubsidy
+            : true,
+        creditAccountId:
+          parsed.acaOptimization?.creditAccountId ?? DEFAULT_CONFIG.acaOptimization?.creditAccountId,
       },
       sources: Array.isArray(parsed.sources) && parsed.sources.length > 0
         ? parsed.sources.map((s: any, idx: number) => {

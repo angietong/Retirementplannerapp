@@ -138,6 +138,7 @@ export function exportToExcel(
     'ACA MAGI',
     'ACA Target Limit',
     'ACA Subsidy Saved',
+    'ACA Credited To Account',
     'Depleted?'
   ];
 
@@ -184,6 +185,7 @@ export function exportToExcel(
       y.acaMagi !== undefined ? Math.round(y.acaMagi) : '',
       y.acaTargetLimit !== undefined ? Math.round(y.acaTargetLimit) : '',
       y.acaQualified && (y.acaSubsidySavings || 0) > 0 ? Math.round(y.acaSubsidySavings || 0) : 0,
+      y.acaQualified && (y.acaCreditedAmount || 0) > 0 ? (y.acaCreditAccountName || '') : '',
       y.depleted ? 'YES' : ''
     ];
     planRows.push(row);

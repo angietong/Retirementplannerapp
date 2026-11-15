@@ -409,6 +409,65 @@ runTest('ACA Cap > $100,000 in Full Retirement: Correctly caps pre-tax draw at $
   );
 });
 
+// ------------------------------------------------------------------------
+// TEST 9: ACA Subsidy Credit Back to Savings Account or User-Chosen Account
+// ------------------------------------------------------------------------
+runTest('ACA Credit Destination: Credits Savings account by default and respects user-selected creditAccountId', () => {
+  // 9a. Default ACA config with enabled=true should credit Joint High-Yield Savings (src-5)
+  const defaultEnabledConfig = {
+    ...DEFAULT_CONFIG,
+    acaOptimization: {
+      ...DEFAULT_CONFIG.acaOptimization!,
+      enabled: true,
+    },
+  };
+
+  const simDefault = runSimulation(defaultEnabledConfig, 'baseline');
+  const qualYear = simDefault.years.find(y => y.isAcaApplicable && y.acaQualified && (y.acaSubsidySavings || 0) > 0);
+  assert(qualYear !== undefined, 'Should find a qualifying ACA year');
+  assert(qualYear!.acaCreditAccountId === 'src-5', `Expected default credit account src-5 (Savings), got ${qualYear!.acaCreditAccountId}`);
+  assert(Math.abs((qualYear!.acaCreditedAmount || 0) - (qualYear!.acaSubsidySavings || 0)) < 0.01, 'Credited amount should equal ACA subsidy savings');
+
+  const savBeg = qualYear!.beginBalanceBySource['src-5'] || 0;
+  const savWd = qualYear!.withdrawalsBySource['src-5'] || 0;
+  const savEnd = qualYear!.endBalanceBySource['src-5'] || 0;
+  const expectedSavEnd = (Math.max(0, savBeg - savWd) + (qualYear!.acaCreditedAmount || 0)) * (1 + (qualYear!.effectiveReturnRate ?? DEFAULT_CONFIG.rates.investRate));
+  assert(Math.abs(savEnd - expectedSavEnd) < 0.01, `Savings ending balance ${savEnd} must reflect credited subsidy ${expectedSavEnd}`);
+
+  // 9b. Custom destination account (e.g., src-4 Joint Investment Brokerage)
+  const customDestConfig = {
+    ...DEFAULT_CONFIG,
+    acaOptimization: {
+      ...DEFAULT_CONFIG.acaOptimization!,
+      enabled: true,
+      creditAccountId: 'src-4',
+      adjustMedicalExpensesWithSubsidy: true,
+    },
+  };
+  const simCustom = runSimulation(customDestConfig, 'baseline');
+  const qualYearCustom = simCustom.years.find(y => y.calYear === qualYear!.calYear)!;
+  assert(qualYearCustom.acaCreditAccountId === 'src-4', `Expected custom credit account src-4, got ${qualYearCustom.acaCreditAccountId}`);
+  const brokBeg = qualYearCustom.beginBalanceBySource['src-4'] || 0;
+  const brokWd = qualYearCustom.withdrawalsBySource['src-4'] || 0;
+  const brokEnd = qualYearCustom.endBalanceBySource['src-4'] || 0;
+  const expectedBrokEnd = (Math.max(0, brokBeg - brokWd) + (qualYearCustom.acaCreditedAmount || 0)) * (1 + (qualYearCustom.effectiveReturnRate ?? DEFAULT_CONFIG.rates.investRate));
+  assert(Math.abs(brokEnd - expectedBrokEnd) < 0.01, `Brokerage ending balance ${brokEnd} must reflect credited subsidy ${expectedBrokEnd}`);
+
+  // 9c. Disabled crediting (__none__)
+  const noneDestConfig = {
+    ...DEFAULT_CONFIG,
+    acaOptimization: {
+      ...DEFAULT_CONFIG.acaOptimization!,
+      enabled: true,
+      creditAccountId: '__none__',
+      adjustMedicalExpensesWithSubsidy: false,
+    },
+  };
+  const simNone = runSimulation(noneDestConfig, 'baseline');
+  const qualYearNone = simNone.years.find(y => y.calYear === qualYear!.calYear)!;
+  assert(qualYearNone.acaCreditAccountId === undefined && (qualYearNone.acaCreditedAmount || 0) === 0, 'When disabled, no account should be credited');
+});
+
 console.log('\n========================================================================');
 console.log(`TEST RUN COMPLETE: ${passCount} OF ${totalCount} TESTS PASSED`);
 console.log('========================================================================\n');
