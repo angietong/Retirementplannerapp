@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { YearSimulationResult, PlannerConfig, DollarDisplayMode } from '../types';
-import { isSourceAccessible, getSourcePenaltyFreeAge } from '../engine';
+import { isSourceAccessible, getSourcePenaltyFreeAge, isTaxDeferredSource } from '../engine';
 import { formatCurrency } from '../utils/formatters';
 
 interface PlanTableProps {
@@ -108,6 +108,7 @@ export const PlanTable: React.FC<PlanTableProps> = ({
               <th className="py-3 px-3">Phase</th>
               <th className="py-3 px-3 text-right">Salary</th>
               <th className="py-3 px-3 text-right">Guar. Income</th>
+              <th className="py-3 px-3 text-right">Mandated RMD</th>
               <th className="py-3 px-3 text-right">Withdrawals</th>
               <th className="py-3 px-3 text-right">Expenses</th>
               <th className="py-3 px-3 text-right">Federal Tax</th>
@@ -184,6 +185,23 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                     <td className="py-2.5 px-3 text-right text-emerald-700">
                       {guarAdj > 0 ? formatCurrency(guarAdj) : '—'}
                     </td>
+                    <td className="py-2.5 px-3 text-right">
+                      {(y.rmdTotal || 0) > 0 ? (
+                        <div>
+                          <div className="text-amber-700 font-bold">{formatCurrency((y.rmdTotal || 0) / deflator)}</div>
+                          {y.rmdDivisor && (
+                            <div className="text-[10px] font-sans text-amber-600">Div: {y.rmdDivisor}</div>
+                          )}
+                        </div>
+                      ) : y.age >= (config.milestones.rmdAge ?? 73) || (hasSpouse && (y.spouseAge ?? 0) >= (config.milestones.rmdAge ?? 73)) ? (
+                        <div>
+                          <div className="text-slate-400">$0</div>
+                          <div className="text-[9px] font-sans text-slate-400" title="Pre-tax 401(k)/IRA accounts have $0 remaining balance">(Pre-tax $0)</div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="py-2.5 px-3 text-right text-indigo-700 font-medium">
                       <div>{formatCurrency(wdAdj)}</div>
                       {y.rmdTotal !== undefined && y.rmdTotal > 0 && (
@@ -257,7 +275,7 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                   {/* Expanded Detail Drawer */}
                   {isExpanded && (
                     <tr className="bg-slate-50 font-sans border-b border-slate-200">
-                      <td colSpan={hasSpouse ? 15 : 14} className="p-4">
+                      <td colSpan={hasSpouse ? 16 : 15} className="p-4">
                         <div className="text-xs space-y-3">
                           <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                             <span className="font-bold text-slate-800">
@@ -320,17 +338,55 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                               </div>
                             )}
 
-                            {y.rmdTotal !== undefined && y.rmdTotal > 0 && (
+                            {((y.rmdTotal !== undefined && y.rmdTotal > 0) ||
+                              y.age >= (config.milestones.rmdAge ?? 73) ||
+                              (hasSpouse && (y.spouseAge ?? 0) >= (config.milestones.rmdAge ?? 73))) && (
                               <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200">
-                                <span className="text-[10px] uppercase font-bold text-amber-800 block">IRS RMD (Age {config.milestones.rmdAge}+)</span>
+                                <span className="text-[10px] uppercase font-bold text-amber-800 block">
+                                  IRS RMD (Age {config.milestones.rmdAge ?? 73}+)
+                                </span>
                                 <div className="text-xs text-amber-900 mt-0.5 space-y-0.5">
-                                  <div>Mandated RMD: <span className="font-bold">{formatCurrency(y.rmdTotal / deflator)}</span> (Divisor: {y.rmdDivisor})</div>
-                                  {y.rmdSurplusGross !== undefined && y.rmdSurplusGross > 0 ? (
-                                    <div className="text-emerald-700 font-medium">
-                                      Surplus {formatCurrency(y.rmdSurplusGross / deflator)} → <span className="font-bold">{formatCurrency((y.rmdSurplusReinvested || 0) / deflator)}</span> net redirected to Brokerage
-                                    </div>
+                                  <div>
+                                    Mandated RMD:{' '}
+                                    <span className="font-bold">
+                                      {formatCurrency((y.rmdTotal || 0) / deflator)}
+                                    </span>
+                                    {y.rmdDivisor ? ` (Divisor: ${y.rmdDivisor})` : ''}
+                                  </div>
+                                  {(y.rmdTotal || 0) > 0 ? (
+                                    <>
+                                      {y.rmdBySource && Object.keys(y.rmdBySource).length > 0 && (
+                                        <div className="text-[10px] text-amber-800 space-y-0.5 pt-0.5">
+                                          {config.sources
+                                            .filter(s => (y.rmdBySource?.[s.id] || 0) > 0)
+                                            .map(s => (
+                                              <div key={s.id} className="flex justify-between">
+                                                <span>• {s.name}:</span>
+                                                <span className="font-semibold">
+                                                  {formatCurrency((y.rmdBySource?.[s.id] || 0) / deflator)}
+                                                </span>
+                                              </div>
+                                            ))}
+                                        </div>
+                                      )}
+                                      {y.rmdSurplusGross !== undefined && y.rmdSurplusGross > 0 ? (
+                                        <div className="text-emerald-700 font-medium pt-0.5">
+                                          Surplus {formatCurrency(y.rmdSurplusGross / deflator)} →{' '}
+                                          <span className="font-bold">
+                                            {formatCurrency((y.rmdSurplusReinvested || 0) / deflator)}
+                                          </span>{' '}
+                                          net redirected to Brokerage
+                                        </div>
+                                      ) : (
+                                        <div className="text-slate-500 text-[10px] pt-0.5">
+                                          Fully absorbed by living expense withdrawals
+                                        </div>
+                                      )}
+                                    </>
                                   ) : (
-                                    <div className="text-slate-500 text-[10px]">Fully absorbed by living expense withdrawals</div>
+                                    <div className="text-slate-500 text-[10px]">
+                                      All tax-deferred 401(k)/IRA accounts have $0 beginning balance — no RMD required.
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -454,6 +510,14 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                                         </div>
                                         <div className="font-mono text-right space-x-2">
                                           <span className="text-slate-500">Beg: {formatCurrency(beg)}</span>
+                                          {isTaxDeferredSource(s) && (y.rmdBySource?.[s.id] || 0) > 0 && (
+                                            <span
+                                              className="text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold"
+                                              title="IRS Required Minimum Distribution for this account"
+                                            >
+                                              RMD: {formatCurrency((y.rmdBySource?.[s.id] || 0) / deflator)}
+                                            </span>
+                                          )}
                                           <span className={wd > 0 ? 'text-indigo-600 font-bold' : 'text-slate-400'}>
                                             W/D: {wd > 0 ? formatCurrency(wd) : '$0'}
                                           </span>

@@ -32,6 +32,8 @@ function loadSavedConfig(): PlannerConfig {
       milestones: {
         ...DEFAULT_CONFIG.milestones,
         ...(parsed.milestones || {}),
+        rmdAge: Number(parsed.milestones?.rmdAge) || DEFAULT_CONFIG.milestones.rmdAge,
+        medicareAge: Number(parsed.milestones?.medicareAge) || DEFAULT_CONFIG.milestones.medicareAge,
       },
       rates: {
         ...DEFAULT_CONFIG.rates,
@@ -89,6 +91,7 @@ export function App() {
   const [dollarMode, setDollarMode] = useState<DollarDisplayMode>('nominal');
   const [activePreset, setActivePreset] = useState<StressPreset>('baseline');
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
+  const [snapshotView, setSnapshotView] = useState<'first10' | 'rmd' | 'all'>('first10');
 
   // Recalculate whenever config or activePreset updates
   const simulationResults = useMemo(() => {
@@ -226,22 +229,56 @@ export function App() {
 
             {/* Quick table preview */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
-              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    Simulation Snapshot (First 10 Years)
+                    Simulation Snapshot ({snapshotView === 'first10' ? 'First 10 Years' : snapshotView === 'rmd' ? `RMD Years (Age ${config.milestones.rmdAge ?? 73}+)` : `All ${simulationResults.years.length} Years`})
                   </h3>
                   <p className="text-xs text-slate-500">
                     {dollarMode === 'real' ? "Values displayed in Real (Today's Purchasing Power) Dollars." : 'Values displayed in Nominal Future Dollars.'}{' '}
-                    View the Simulation Table tab for all {config.projectionYears} years and per-account breakdowns.
+                    View the Simulation Table tab for per-account breakdowns.
                   </p>
                 </div>
-                <button
-                  onClick={() => setActiveTab('table')}
-                  className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-md transition-colors"
-                >
-                  View All {config.projectionYears} Years &rarr;
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-lg text-xs font-medium">
+                    <button
+                      onClick={() => setSnapshotView('first10')}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        snapshotView === 'first10'
+                          ? 'bg-white text-slate-900 font-bold shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      First 10 Yrs
+                    </button>
+                    <button
+                      onClick={() => setSnapshotView('rmd')}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        snapshotView === 'rmd'
+                          ? 'bg-amber-600 text-white font-bold shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      RMD Years (Age {config.milestones.rmdAge ?? 73}+)
+                    </button>
+                    <button
+                      onClick={() => setSnapshotView('all')}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        snapshotView === 'all'
+                          ? 'bg-white text-slate-900 font-bold shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      All {simulationResults.years.length} Yrs
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('table')}
+                    className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-md transition-colors"
+                  >
+                    Detailed Table &rarr;
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -253,6 +290,7 @@ export function App() {
                       {hasSpouse && <th className="py-2.5 px-3">{spouseName} Age</th>}
                       <th className="py-2.5 px-3">Phase</th>
                       <th className="py-2.5 px-3 text-right">Guaranteed</th>
+                      <th className="py-2.5 px-3 text-right">Mandated RMD</th>
                       <th className="py-2.5 px-3 text-right">Withdrawal</th>
                       <th className="py-2.5 px-3 text-right">Expenses</th>
                       <th className="py-2.5 px-3 text-right">Total Tax</th>
@@ -260,13 +298,25 @@ export function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-mono">
-                    {simulationResults.years.slice(0, 10).map(y => {
+                    {(snapshotView === 'first10'
+                      ? simulationResults.years.slice(0, 10)
+                      : snapshotView === 'rmd'
+                      ? simulationResults.years.filter(
+                          y =>
+                            y.age >= (config.milestones.rmdAge ?? 73) ||
+                            (hasSpouse && (y.spouseAge ?? 0) >= (config.milestones.rmdAge ?? 73))
+                        )
+                      : simulationResults.years
+                    ).map(y => {
                       const deflator = getDeflator(y.yr);
                       const guar = y.guarTotal / deflator;
+                      const rmd = (y.rmdTotal || 0) / deflator;
                       const wd = y.wdTotal / deflator;
                       const exp = y.expenses / deflator;
                       const tax = y.totalTax / deflator;
                       const endBal = y.combEndBal / deflator;
+                      const rmdAge = config.milestones.rmdAge ?? 73;
+                      const isRmdAgeReached = y.age >= rmdAge || (hasSpouse && (y.spouseAge ?? 0) >= rmdAge);
 
                       return (
                         <tr key={y.yr} className="hover:bg-slate-50/70">
@@ -286,6 +336,19 @@ export function App() {
                             {guar > 0
                               ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(guar)
                               : '—'}
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            {rmd > 0 ? (
+                              <span className="text-amber-700 font-bold">
+                                {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(rmd)}
+                              </span>
+                            ) : isRmdAgeReached ? (
+                              <span className="text-slate-400 text-[10px] font-sans" title="Pre-tax 401(k)/IRA accounts have $0 remaining balance">
+                                $0 (Pre-tax $0)
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
                           <td className="py-2 px-3 text-right text-indigo-700 font-medium">
                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(wd)}

@@ -278,6 +278,8 @@ export function runSimulation(
   const four01kAge = milestones.four01kAge ?? milestones.retireAcctAge ?? 55;
   const iraAge = milestones.iraAge ?? milestones.retireAcctAge ?? 60;
   const ssMinAge = milestones.ssMinAge ?? 62;
+  const medicareAge = milestones.medicareAge ?? 65;
+  const rmdAge = milestones.rmdAge ?? 73;
 
   const spouseFour01kAge = milestones.spouseFour01kAge ?? four01kAge;
   const spouseIraAge = milestones.spouseIraAge ?? iraAge;
@@ -391,8 +393,8 @@ export function runSimulation(
 
   for (let yr = 0; yr < projectionYears; yr++) {
     const calYear = retYear + yr;
-    const age = retAge + yr;
-    const spouseAge = hasSpouse ? retSpouseAge + yr : undefined;
+    const age = Math.round((retAge + yr) * 10) / 10;
+    const spouseAge = hasSpouse ? Math.round((retSpouseAge + yr) * 10) / 10 : undefined;
 
     // Determine return rate and general inflation rate under active stress preset
     let effInvestRate = overrideInvestRates && overrideInvestRates[yr] !== undefined
@@ -437,7 +439,7 @@ export function runSimulation(
     }
 
     // Check Medicare milestone status (age 65+)
-    const isMedicareActive = age >= milestones.medicareAge;
+    const isMedicareActive = age >= medicareAge;
 
     // Base medical expenses (switching to post-Medicare amounts if configured)
     let baseMedPremium = expenses.expMedPremium;
@@ -511,9 +513,9 @@ export function runSimulation(
         phase = 1;
       } else if (age < iraAge) {
         phase = 2;
-      } else if (!ssReached && age < milestones.medicareAge) {
+      } else if (!ssReached && age < medicareAge) {
         phase = 3;
-      } else if (age < milestones.rmdAge) {
+      } else if (age < rmdAge) {
         phase = 4;
       } else {
         phase = 5;
@@ -568,7 +570,7 @@ export function runSimulation(
 
     processedSources.forEach(s => {
       rmdBySource[s.id] = 0;
-      if (!s.isMonthly && s.taxType === 'Income') {
+      if (!s.isMonthly && s.isTaxDef) {
         let ownerAge = age;
         if (s.owner === 'spouse' && hasSpouse && spouseAge !== undefined) {
           ownerAge = spouseAge;
@@ -576,7 +578,7 @@ export function runSimulation(
           ownerAge = Math.max(age, spouseAge);
         }
 
-        if (ownerAge >= milestones.rmdAge) {
+        if (ownerAge >= rmdAge) {
           const divisor = getIrsRmdDivisor(ownerAge);
           if (divisor > 0) {
             const acctBegBal = Math.max(0, beginBalanceBySource[s.id] || 0);
@@ -588,6 +590,10 @@ export function runSimulation(
         }
       }
     });
+
+    if (rmdDivisor === 0 && (age >= rmdAge || (hasSpouse && spouseAge !== undefined && spouseAge >= rmdAge))) {
+      rmdDivisor = getIrsRmdDivisor(age >= rmdAge ? age : spouseAge!);
+    }
 
     // Gross-up base withdrawal formula needed to meet living expenses
     const denominator = Math.max(0.0001, 1 - rTax);
