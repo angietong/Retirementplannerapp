@@ -379,7 +379,7 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                                   )}
                                   {y.isPhase0AcaIncomeOverride && (
                                     <div className="bg-amber-100/90 text-amber-900 border border-amber-300 rounded p-1.5 text-[10px] mt-1 font-medium">
-                                      ⚡ <strong>Phase 0 Transition Logic:</strong> Earned wages exceeded the ACA limit. High-priority tax-deferred accounts were drawn for living income, preserving Cash & Roth reserves for future subsidy years.
+                                      ⚡ <strong>Phase 0 Transition Logic:</strong> Earned wages and required living withdrawals exceeded the ACA limit. High-priority tax-deferred accounts were drawn for living income, preserving Cash & Roth reserves for future subsidy years.
                                     </div>
                                   )}
                                 </div>

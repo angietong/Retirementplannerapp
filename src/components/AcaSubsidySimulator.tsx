@@ -392,18 +392,30 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
             <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
               <div className="flex justify-between">
                 <span className="text-slate-500">Average Pre-Medicare AGI:</span>
-                <span className="font-semibold text-red-600">
-                  {formatCurrency(
+                {(() => {
+                  const avgBase =
                     comparison.schedule.length > 0
                       ? comparison.schedule.reduce((acc, s) => acc + s.baselineMagi, 0) / comparison.schedule.length
-                      : 0
-                  )}
-                  /yr (Exceeds Cliff)
-                </span>
+                      : 0;
+                  const avgLimit =
+                    comparison.schedule.length > 0
+                      ? comparison.schedule.reduce((acc, s) => acc + s.targetLimit, 0) / comparison.schedule.length
+                      : acaConfig.targetMagilimit;
+                  const exceeds = avgBase > avgLimit;
+                  return (
+                    <span className={`font-semibold ${exceeds ? 'text-red-600' : 'text-slate-800'}`}>
+                      {formatCurrency(avgBase)}/yr ({exceeds ? 'Exceeds Cap' : 'Under Cap'})
+                    </span>
+                  );
+                })()}
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Pre-Medicare Health Subsidies Received:</span>
-                <span className="font-bold text-slate-800">$0 (100% Out-of-Pocket)</span>
+                <span className="font-bold text-slate-800">
+                  {comparison.baselineSummary.totalAcaSubsidiesSaved && comparison.baselineSummary.totalAcaSubsidiesSaved > 0
+                    ? formatCurrency(comparison.baselineSummary.totalAcaSubsidiesSaved)
+                    : '$0 (100% Out-of-Pocket)'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Total Lifetime Taxes Paid:</span>
@@ -434,14 +446,22 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
             <div className="bg-white p-3 rounded-lg border border-emerald-200 space-y-1.5">
               <div className="flex justify-between">
                 <span className="text-slate-500">Average Pre-Medicare AGI:</span>
-                <span className="font-semibold text-emerald-700">
-                  {formatCurrency(
+                {(() => {
+                  const avgAca =
                     comparison.schedule.length > 0
                       ? comparison.schedule.reduce((acc, s) => acc + s.acaMagi, 0) / comparison.schedule.length
-                      : 0
-                  )}
-                  /yr (Under Cliff)
-                </span>
+                      : 0;
+                  const avgLimit =
+                    comparison.schedule.length > 0
+                      ? comparison.schedule.reduce((acc, s) => acc + s.targetLimit, 0) / comparison.schedule.length
+                      : acaConfig.targetMagilimit;
+                  const isUnder = avgAca <= avgLimit;
+                  return (
+                    <span className={`font-semibold ${isUnder ? 'text-emerald-700' : 'text-amber-800'}`}>
+                      {formatCurrency(avgAca)}/yr ({isUnder ? 'Under Cap' : 'Over Cap'})
+                    </span>
+                  );
+                })()}
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Total Pre-Medicare Subsidies Saved:</span>
@@ -544,7 +564,7 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
                         {s.phase0IncomeOverride ? (
                           <span
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-100/90 border border-amber-300 px-2 py-0.5 rounded-full"
-                            title="Partial worked year wages already exceeded the ACA limit. High-priority tax-deferred accounts were tapped for living income, preserving Cash & Roth reserves for future subsidy years."
+                            title="Partial worked year wages and living withdrawals exceeded the ACA limit. High-priority tax-deferred accounts were tapped for living income, preserving Cash & Roth reserves for future subsidy years."
                           >
                             <AlertTriangle className="w-3 h-3 text-amber-700" />
                             PHASE 0: PRE-TAX INCOME
@@ -604,7 +624,7 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
           <div className="p-3 bg-white rounded-lg border border-amber-200 bg-amber-50/50 space-y-1">
             <span className="font-bold text-amber-950 block">4. Phase 0 Transition Year</span>
             <p className="leading-relaxed text-[11px] text-amber-900">
-              When partial-year earned wages already exceed the ACA limit, the planner taps high-priority tax-deferred accounts for living income
+              When partial-year earned wages and living expense withdrawals exceed the ACA limit, the planner taps high-priority tax-deferred accounts for living income
               instead of burning cash/Roth, preserving non-AGI assets for full retirement years.
             </p>
           </div>

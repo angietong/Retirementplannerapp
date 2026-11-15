@@ -138,7 +138,7 @@ export function calculateAcaSubsidy({
   const baseFpl = (ACA_FPL_BASE[householdSize] || 21150) * (cumInflation && cumInflation > 0 ? cumInflation : 1);
   const fplRatio = baseFpl > 0 ? magi / baseFpl : 4.0;
 
-  if (magi > targetLimit) {
+  if (magi > targetLimit + 1.0) {
     return {
       qualified: false,
       subsidyAmount: 0,
@@ -165,9 +165,10 @@ export function calculateAcaSubsidy({
 
   const expectedContribution = Math.min(unsubsidizedPremium, Math.max(0, magi * rate));
   const subsidyAmount = Math.max(0, unsubsidizedPremium - expectedContribution);
+  const qualified = magi <= targetLimit + 1.0 && subsidyAmount > 0;
 
   return {
-    qualified: true,
+    qualified,
     subsidyAmount,
     expectedContribution,
     fplRatio,
@@ -630,21 +631,35 @@ export function runSimulation(
       // bridging remaining cash flow needs using Non-AGI accounts (Cash & Roth).
       // -------------------------------------------------------------
       const unavoidableAgi = totalSalary + guarTaxable;
-      const isPhase0SalaryExceededAca = phase === 0 && unavoidableAgi >= acaTargetLimitForYear;
+      const totalIncomeWithWd = unavoidableAgi + baseWdTotal;
+      const remainingAgiHeadroom = Math.max(0, acaTargetLimitForYear - unavoidableAgi);
+
+      // Available liquid Non-AGI accounts (Cash & Roth)
+      const availableNonAgiBal = depletingAccessible
+        .filter(item => isSourceNonAgi(item.source) && item.beginBal > 0)
+        .reduce((sum, item) => sum + Math.max(0, item.beginBal), 0);
+
+      const neededNonAgiBridge = Math.max(0, baseWdTotal - remainingAgiHeadroom);
+
+      // SPECIAL LOGIC FOR PHASE 0:
+      // When the ACA cap is increased (e.g. to >$100,000), partial-year salary alone may be below the cap,
+      // but the living expense withdrawn amount (totalIncomeWithWd = salary + baseWdTotal) exceeds the cap.
+      // Additionally, if the required Non-AGI cash/Roth bridge needed to stay under the limit exceeds total
+      // available Cash/Roth assets, attempting to cap pre-tax draws would inevitably fail in step 4 anyway.
+      // In these situations, draw from high-priority tax-deferred sources as income to fully fund living needs,
+      // shielding precious tax-free Cash/Roth reserves for subsequent pre-Medicare retirement years.
+      const isPhase0ExceededAca = phase === 0 && (
+        unavoidableAgi >= (acaTargetLimitForYear - 1.0) ||
+        totalIncomeWithWd >= (acaTargetLimitForYear - 1.0) ||
+        (neededNonAgiBridge > 0 && neededNonAgiBridge > availableNonAgiBal)
+      );
 
       // 1. Draw from pre-tax AGI sources:
-      // SPECIAL LOGIC FOR PHASE 0:
-      // When partial worked year wages/unavoidable income already exceed the ACA subsidy limit,
-      // subsidy qualification is already impossible for this transition year regardless of withdrawals.
-      // Instead of capping pre-tax draws to $0 and prematurely burning precious tax-free Cash/Roth reserves,
-      // use high priority tax-deferred sources as income to cover the living expense withdrawal shortfall.
-      // This preserves Cash and Roth accounts for future pre-Medicare retirement years where subsidies CAN be captured.
       let allowablePreTaxDraw = 0;
-      if (isPhase0SalaryExceededAca) {
+      if (isPhase0ExceededAca) {
         allowablePreTaxDraw = baseWdTotal;
         isPhase0AcaIncomeOverride = true;
       } else {
-        const remainingAgiHeadroom = Math.max(0, acaTargetLimitForYear - unavoidableAgi);
         allowablePreTaxDraw = Math.min(baseWdTotal, remainingAgiHeadroom);
       }
       let filledSoFar = 0;
