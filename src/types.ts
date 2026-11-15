@@ -170,6 +170,11 @@ export interface YearSimulationResult {
   // Roth conversion tracking
   rothConvertedAmount?: number;
   rothConversionTax?: number;
+  rothConversionByOwner?: { primary: number; spouse: number };
+  rothConvertedBySource?: Record<string, number>;
+  rothDepositBySource?: Record<string, number>;
+  primaryRothAccountName?: string;
+  spouseRothAccountName?: string;
   // ACA Healthcare Subsidy Optimization tracking
   acaMagi?: number;
   acaTargetLimit?: number;
@@ -234,6 +239,10 @@ export interface RothComparisonResult {
     spouseAge?: number;
     bracketRoom: number;
     convertedAmount: number;
+    primaryConverted?: number;
+    spouseConverted?: number;
+    primaryRothName?: string;
+    spouseRothName?: string;
     conversionTax: number;
     preTaxBalanceBefore: number;
     preTaxBalanceAfter: number;

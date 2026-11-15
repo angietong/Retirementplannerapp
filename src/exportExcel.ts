@@ -129,6 +129,7 @@ export function exportToExcel(
     'IRS Divisor',
     'RMD Surplus Reinvested',
     'Roth Converted',
+    ...(hasSpouse ? [`${primaryName} Roth Conv.`, `${spouseName} Roth Conv.`] : []),
     'Roth Conv. Tax',
     'Federal Tax',
     'State Tax',
@@ -176,6 +177,12 @@ export function exportToExcel(
       y.rmdDivisor || 0,
       Math.round(y.rmdSurplusReinvested || 0),
       Math.round(y.rothConvertedAmount || 0),
+      ...(hasSpouse
+        ? [
+            Math.round(y.rothConversionByOwner?.primary || 0),
+            Math.round(y.rothConversionByOwner?.spouse || 0),
+          ]
+        : []),
       Math.round(y.rothConversionTax || 0),
       Math.round(y.fedTax),
       Math.round(y.stateTax),

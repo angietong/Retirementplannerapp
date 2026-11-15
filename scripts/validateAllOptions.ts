@@ -227,6 +227,33 @@ test('Roth conversion comparison runs and generates conversion schedule', () => 
   console.log('     -> Final Balance Diff:     $' + Math.round(comp.finalBalanceDifference).toLocaleString());
 });
 
+test('2-person Roth conversion splits 50/50 equally between spouses and transfers to each spouse\'s Roth account', () => {
+  const rothConfig = {
+    enabled: true,
+    startAge: 61,
+    endAge: 70,
+    targetBracketRate: 0.24,
+    bracketRoomMaxIncome: 383900,
+    annualCap: 60000,
+    taxPaymentMethod: 'outsideBrokerage' as const,
+  };
+  const sim = runSimulation(DEFAULT_CONFIG, 'baseline', rothConfig);
+  const convYear = sim.years.find(y => y.age === 62 && (y.rothConvertedAmount || 0) > 0);
+  assert(Boolean(convYear), 'Should have active Roth conversion at age 62');
+  if (convYear) {
+    const totalConv = convYear.rothConvertedAmount || 0;
+    const primConv = convYear.rothConversionByOwner?.primary || 0;
+    const spConv = convYear.rothConversionByOwner?.spouse || 0;
+    assert(Math.abs(totalConv - 60000) < 1, `Expected $60,000 annual conversion cap, got ${totalConv}`);
+    assert(Math.abs(primConv - 30000) < 1, `Expected $30,000 (50%) primary conversion, got ${primConv}`);
+    assert(Math.abs(spConv - 30000) < 1, `Expected $30,000 (50%) spouse conversion, got ${spConv}`);
+    const johnRothDep = convYear.rothDepositBySource?.['src-9'] || 0;
+    const janeRothDep = convYear.rothDepositBySource?.['src-10'] || 0;
+    assert(Math.abs(johnRothDep - 30000) < 1, `Expected $30,000 transferred to John's Roth (src-9), got ${johnRothDep}`);
+    assert(Math.abs(janeRothDep - 30000) < 1, `Expected $30,000 transferred to Jane's Roth (src-10), got ${janeRothDep}`);
+  }
+});
+
 // -------------------------------------------------------------
 // 8. ACA HEALTHCARE SUBSIDY OPTIMIZATION ENGINE
 // -------------------------------------------------------------

@@ -394,10 +394,42 @@ export const PlanTable: React.FC<PlanTableProps> = ({
 
                             {y.rothConvertedAmount !== undefined && y.rothConvertedAmount > 0 && (
                               <div className="bg-purple-50/70 p-2.5 rounded-lg border border-purple-200">
-                                <span className="text-[10px] uppercase font-bold text-purple-800 block">Roth Conversion Strategy</span>
+                                <span className="text-[10px] uppercase font-bold text-purple-800 block">
+                                  Roth Conversion Strategy {hasSpouse ? '(Equal 50/50 Split)' : ''}
+                                </span>
                                 <div className="text-xs text-purple-900 mt-0.5 space-y-0.5">
-                                  <div>Converted to Roth: <span className="font-bold">{formatCurrency(y.rothConvertedAmount / deflator)}</span></div>
-                                  <div>Conversion Tax: <span className="font-semibold text-rose-600">{formatCurrency((y.rothConversionTax || 0) / deflator)}</span></div>
+                                  <div>
+                                    Total Converted:{' '}
+                                    <span className="font-bold">
+                                      {formatCurrency(y.rothConvertedAmount / deflator)}
+                                    </span>
+                                  </div>
+                                  {hasSpouse && y.rothConversionByOwner && (
+                                    <div className="text-[11px] text-purple-800 space-y-0.5 pt-0.5 border-t border-purple-200/60">
+                                      <div className="flex justify-between gap-2">
+                                        <span>
+                                          • {primaryName} &rarr; {y.primaryRothAccountName || 'Roth'}:
+                                        </span>
+                                        <span className="font-semibold">
+                                          {formatCurrency(y.rothConversionByOwner.primary / deflator)}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-2">
+                                        <span>
+                                          • {spouseName} &rarr; {y.spouseRothAccountName || 'Roth'}:
+                                        </span>
+                                        <span className="font-semibold">
+                                          {formatCurrency(y.rothConversionByOwner.spouse / deflator)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div className="pt-0.5">
+                                    Conversion Tax:{' '}
+                                    <span className="font-semibold text-rose-600">
+                                      {formatCurrency((y.rothConversionTax || 0) / deflator)}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -521,6 +553,22 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                                           <span className={wd > 0 ? 'text-indigo-600 font-bold' : 'text-slate-400'}>
                                             W/D: {wd > 0 ? formatCurrency(wd) : '$0'}
                                           </span>
+                                          {(y.rothConvertedBySource?.[s.id] || 0) > 0 && (
+                                            <span
+                                              className="text-purple-800 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-bold"
+                                              title="Pre-tax balance converted to Roth IRA/401(k)"
+                                            >
+                                              Roth Conv: {formatCurrency((y.rothConvertedBySource?.[s.id] || 0) / deflator)}
+                                            </span>
+                                          )}
+                                          {(y.rothDepositBySource?.[s.id] || 0) > 0 && (
+                                            <span
+                                              className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold"
+                                              title="Converted Roth funds deposited into this account before annual return compounding"
+                                            >
+                                              +Roth Transfer: {formatCurrency((y.rothDepositBySource?.[s.id] || 0) / deflator)}
+                                            </span>
+                                          )}
                                           {y.acaCreditAccountId === s.id && (y.acaCreditedAmount || 0) > 0 && (
                                             <span
                                               className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold"

@@ -978,13 +978,14 @@ export function runSimulation(
     let rothConvertedAmount = 0;
     let rothConversionTax = 0;
     const conversionDeductionsBySource: Record<string, number> = {};
+    const rothConversionByOwner = { primary: 0, spouse: 0 };
 
     if (rothConfig?.enabled && age >= rothConfig.startAge && age <= rothConfig.endAge) {
       // Calculate taxable income before conversion
       let currentTaxableLivingWd = 0;
       depletingAccessible.forEach(item => {
         const wd = withdrawalsBySource[item.source.id] || 0;
-        if (item.source.taxType === 'Income') {
+        if (item.isTaxDeferred || item.source.taxType === 'Income') {
           currentTaxableLivingWd += wd;
         } else if (item.source.taxType === 'Capital Gain') {
           currentTaxableLivingWd += wd * rates.capgainPct;
@@ -995,14 +996,23 @@ export function runSimulation(
       const bracketRoom = Math.max(0, rothConfig.bracketRoomMaxIncome - baseTaxableIncome);
       const annualCap = rothConfig.annualCap > 0 ? rothConfig.annualCap : Infinity;
 
-      // Available pre-tax balances remaining after living & RMD withdrawals
-      let availablePreTax = 0;
-      depletingAccessible.forEach(item => {
-        if (item.source.taxType === 'Income') {
-          const rem = Math.max(0, item.beginBal - (withdrawalsBySource[item.source.id] || 0));
-          availablePreTax += rem;
-        }
-      });
+      // Separate accessible pre-tax accounts by owner (Primary vs Spouse)
+      const primaryPreTaxItems = depletingAccessible.filter(
+        item => (item.isTaxDeferred || item.source.taxType === 'Income') && item.owner !== 'spouse'
+      );
+      const spousePreTaxItems = depletingAccessible.filter(
+        item => (item.isTaxDeferred || item.source.taxType === 'Income') && item.owner === 'spouse'
+      );
+
+      const availPrimaryPreTax = primaryPreTaxItems.reduce(
+        (sum, item) => sum + Math.max(0, item.beginBal - (withdrawalsBySource[item.source.id] || 0)),
+        0
+      );
+      const availSpousePreTax = spousePreTaxItems.reduce(
+        (sum, item) => sum + Math.max(0, item.beginBal - (withdrawalsBySource[item.source.id] || 0)),
+        0
+      );
+      const availablePreTax = availPrimaryPreTax + availSpousePreTax;
 
       let maxAllowedByAca = Infinity;
       if (acaEnabled && isAcaApplicable) {
@@ -1017,29 +1027,114 @@ export function runSimulation(
         const totalConvRate = fedConvRate + rates.stateRate;
         rothConversionTax = maxConversion * totalConvRate;
 
-        // Deduct conversion amount from pre-tax accounts
-        let convRemaining = maxConversion;
-        depletingAccessible.forEach(item => {
-          if (item.source.taxType === 'Income' && convRemaining > 0) {
-            const currentWd = withdrawalsBySource[item.source.id] || 0;
-            const availableInAcct = Math.max(0, item.beginBal - currentWd);
-            const deduct = Math.min(availableInAcct, convRemaining);
-            withdrawalsBySource[item.source.id] = currentWd + deduct;
-            conversionDeductionsBySource[item.source.id] = deduct;
-            convRemaining -= deduct;
+        if (hasSpouse) {
+          // 2-Person Household: Convert equally (50% / 50%) from both people's tax-deferred accounts,
+          // with automatic spillover if one spouse has less pre-tax balance than their 50% share.
+          const halfConv = maxConversion / 2;
+          let primConvTarget = Math.min(availPrimaryPreTax, halfConv);
+          let spConvTarget = Math.min(availSpousePreTax, halfConv);
+          let remConv = maxConversion - (primConvTarget + spConvTarget);
+
+          if (remConv > 0) {
+            if (availPrimaryPreTax > primConvTarget) {
+              const addPrim = Math.min(availPrimaryPreTax - primConvTarget, remConv);
+              primConvTarget += addPrim;
+              remConv -= addPrim;
+            }
+            if (remConv > 0 && availSpousePreTax > spConvTarget) {
+              const addSp = Math.min(availSpousePreTax - spConvTarget, remConv);
+              spConvTarget += addSp;
+              remConv -= addSp;
+            }
           }
-        });
+
+          let primRem = primConvTarget;
+          primaryPreTaxItems.forEach(item => {
+            if (primRem > 0) {
+              const currentWd = withdrawalsBySource[item.source.id] || 0;
+              const availableInAcct = Math.max(0, item.beginBal - currentWd);
+              const deduct = Math.min(availableInAcct, primRem);
+              if (deduct > 0) {
+                withdrawalsBySource[item.source.id] = currentWd + deduct;
+                conversionDeductionsBySource[item.source.id] = deduct;
+                rothConversionByOwner.primary += deduct;
+                primRem -= deduct;
+              }
+            }
+          });
+
+          let spRem = spConvTarget;
+          spousePreTaxItems.forEach(item => {
+            if (spRem > 0) {
+              const currentWd = withdrawalsBySource[item.source.id] || 0;
+              const availableInAcct = Math.max(0, item.beginBal - currentWd);
+              const deduct = Math.min(availableInAcct, spRem);
+              if (deduct > 0) {
+                withdrawalsBySource[item.source.id] = currentWd + deduct;
+                conversionDeductionsBySource[item.source.id] = deduct;
+                rothConversionByOwner.spouse += deduct;
+                spRem -= deduct;
+              }
+            }
+          });
+        } else {
+          // Single-Person Household: Deduct conversion amount from pre-tax accounts in priority order
+          let convRemaining = maxConversion;
+          primaryPreTaxItems.forEach(item => {
+            if (convRemaining > 0) {
+              const currentWd = withdrawalsBySource[item.source.id] || 0;
+              const availableInAcct = Math.max(0, item.beginBal - currentWd);
+              const deduct = Math.min(availableInAcct, convRemaining);
+              if (deduct > 0) {
+                withdrawalsBySource[item.source.id] = currentWd + deduct;
+                conversionDeductionsBySource[item.source.id] = deduct;
+                rothConversionByOwner.primary += deduct;
+                convRemaining -= deduct;
+              }
+            }
+          });
+        }
       }
     }
 
-    // Find destination accounts for redirected RMD surplus and Roth conversion
+    // Find destination accounts for redirected RMD surplus and owner-matched Roth conversion
     const brokerageAcct = sources.find(s => s.monthly === 'N' && s.taxType === 'Capital Gain') ||
       sources.find(s => s.monthly === 'N' && s.taxType !== 'Income') ||
       sources.find(s => s.monthly === 'N');
-    const rothAcct = (rothConfig?.targetRothAccountId ? sources.find(s => s.id === rothConfig.targetRothAccountId) : null) ||
-      sources.find(s => s.monthly === 'N' && (s.accountType === 'roth' || s.name.toLowerCase().includes('roth'))) ||
-      sources.find(s => s.monthly === 'N' && s.taxType === 'N/a' && !isSourceCash(s)) ||
-      sources.find(s => s.monthly === 'N' && s.taxType === 'N/a');
+
+    const allRothCandidates = sources.filter(s => s.monthly === 'N' && isSourceRoth(s));
+    const fallbackTaxFreeCandidates = sources.filter(
+      s => s.monthly === 'N' && s.taxType === 'N/a' && !isSourceCash(s)
+    );
+    const rothPool =
+      allRothCandidates.length > 0
+        ? allRothCandidates
+        : fallbackTaxFreeCandidates.length > 0
+        ? fallbackTaxFreeCandidates
+        : sources.filter(s => s.monthly === 'N' && s.taxType === 'N/a');
+
+    const explicitTargetRoth = rothConfig?.targetRothAccountId
+      ? sources.find(s => s.id === rothConfig.targetRothAccountId)
+      : undefined;
+
+    const primaryRothAcct =
+      (!hasSpouse && explicitTargetRoth) ||
+      (explicitTargetRoth && (explicitTargetRoth.owner || 'primary') === 'primary'
+        ? explicitTargetRoth
+        : undefined) ||
+      rothPool.find(s => (s.owner || 'primary') === 'primary') ||
+      rothPool.find(s => s.owner === 'joint') ||
+      explicitTargetRoth ||
+      rothPool[0];
+
+    const spouseRothAcct = hasSpouse
+      ? (explicitTargetRoth && explicitTargetRoth.owner === 'spouse'
+          ? explicitTargetRoth
+          : undefined) ||
+        rothPool.find(s => s.owner === 'spouse') ||
+        rothPool.find(s => s.owner === 'joint') ||
+        primaryRothAcct
+      : undefined;
 
     // Deduct conversion taxes from brokerage / cash when paid from outside accounts
     let rothTaxPaidOutside = 0;
@@ -1071,6 +1166,33 @@ export function runSimulation(
             if (taxRemaining <= 0) break;
           }
         }
+      }
+    }
+
+    // Calculate net Roth deposits per destination Roth account (matching each person's converted amount)
+    const rothDepositBySource: Record<string, number> = {};
+    if (rothConvertedAmount > 0) {
+      const unpaidTax = Math.max(0, rothConversionTax - rothTaxPaidOutside);
+      const netTotalToRoth =
+        rothConfig?.taxPaymentMethod === 'withhold'
+          ? Math.max(0, rothConvertedAmount - rothConversionTax)
+          : Math.max(0, rothConvertedAmount - unpaidTax);
+      const netRatio = rothConvertedAmount > 0 ? netTotalToRoth / rothConvertedAmount : 0;
+
+      if (hasSpouse) {
+        const primaryNetToRoth = rothConversionByOwner.primary * netRatio;
+        const spouseNetToRoth = rothConversionByOwner.spouse * netRatio;
+        if (primaryRothAcct && primaryNetToRoth > 0) {
+          rothDepositBySource[primaryRothAcct.id] =
+            (rothDepositBySource[primaryRothAcct.id] || 0) + primaryNetToRoth;
+        }
+        if (spouseRothAcct && spouseNetToRoth > 0) {
+          rothDepositBySource[spouseRothAcct.id] =
+            (rothDepositBySource[spouseRothAcct.id] || 0) + spouseNetToRoth;
+        }
+      } else if (primaryRothAcct && netTotalToRoth > 0) {
+        rothDepositBySource[primaryRothAcct.id] =
+          (rothDepositBySource[primaryRothAcct.id] || 0) + netTotalToRoth;
       }
     }
 
@@ -1158,13 +1280,10 @@ export function runSimulation(
           remaining += rmdSurplusReinvested;
         }
 
-        // Deposit systematic Roth conversion into Roth account
-        if (rothAcct && s.id === rothAcct.id && rothConvertedAmount > 0) {
-          const unpaidTax = Math.max(0, rothConversionTax - rothTaxPaidOutside);
-          const netToRoth = rothConfig?.taxPaymentMethod === 'withhold'
-            ? Math.max(0, rothConvertedAmount - rothConversionTax)
-            : Math.max(0, rothConvertedAmount - unpaidTax);
-          remaining += netToRoth;
+        // Deposit systematic Roth conversion into corresponding owner's Roth account
+        const rothDeposit = rothDepositBySource[s.id] || 0;
+        if (rothDeposit > 0) {
+          remaining += rothDeposit;
         }
 
         // Reinvest/credit ACA subsidy savings into chosen account (defaults to Savings/Cash)
@@ -1229,6 +1348,11 @@ export function runSimulation(
       rmdBySource,
       rothConvertedAmount,
       rothConversionTax,
+      rothConversionByOwner,
+      rothConvertedBySource: conversionDeductionsBySource,
+      rothDepositBySource,
+      primaryRothAccountName: primaryRothAcct?.name,
+      spouseRothAccountName: spouseRothAcct?.name,
       isSynchronizedTdActive,
       tdWithdrawalByOwner,
       acaMagi,
@@ -1381,7 +1505,7 @@ export function compareRothConversion(
 
       // Pre-tax balance sum
       const preTaxBal = config.sources
-        .filter(s => s.monthly === 'N' && s.taxType === 'Income')
+        .filter(s => s.monthly === 'N' && isTaxDeferredSource(s))
         .reduce((sum, s) => sum + (y.endBalanceBySource[s.id] || 0), 0);
 
       // Roth balance sum
@@ -1398,6 +1522,10 @@ export function compareRothConversion(
         spouseAge: y.spouseAge,
         bracketRoom,
         convertedAmount: convAmt,
+        primaryConverted: y.rothConversionByOwner?.primary ?? convAmt,
+        spouseConverted: y.rothConversionByOwner?.spouse ?? 0,
+        primaryRothName: y.primaryRothAccountName,
+        spouseRothName: y.spouseRothAccountName,
         conversionTax: convTax,
         preTaxBalanceBefore: preTaxBal + convAmt,
         preTaxBalanceAfter: preTaxBal,

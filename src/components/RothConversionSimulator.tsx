@@ -24,7 +24,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { PlannerConfig, RothConversionConfig, StressPreset, DollarDisplayMode } from '../types';
-import { compareRothConversion, getAdjustedAmount } from '../engine';
+import { compareRothConversion, isTaxDeferredSource } from '../engine';
 import { formatCurrency } from '../utils/formatters';
 
 interface RothConversionSimulatorProps {
@@ -70,12 +70,36 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
     });
   };
 
+  const hasSpouse = Boolean(config.scenario?.hasSpouse);
+  const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+
   const hasPreTaxAccounts = config.sources.some(
-    s => s.monthly === 'N' && s.taxType === 'Income' && s.balance > 0
+    s => s.monthly === 'N' && isTaxDeferredSource(s) && s.balance > 0
   );
   const totalPreTaxBalance = config.sources
-    .filter(s => s.monthly === 'N' && s.taxType === 'Income')
+    .filter(s => s.monthly === 'N' && isTaxDeferredSource(s))
     .reduce((sum, s) => sum + (s.balance || 0), 0);
+
+  const primaryRothAcct =
+    config.sources.find(
+      s =>
+        s.monthly === 'N' &&
+        (s.accountType === 'roth' || s.name.toLowerCase().includes('roth')) &&
+        (s.owner || 'primary') === 'primary'
+    ) ||
+    config.sources.find(
+      s => s.monthly === 'N' && (s.accountType === 'roth' || s.name.toLowerCase().includes('roth'))
+    );
+
+  const spouseRothAcct = hasSpouse
+    ? config.sources.find(
+        s =>
+          s.monthly === 'N' &&
+          (s.accountType === 'roth' || s.name.toLowerCase().includes('roth')) &&
+          s.owner === 'spouse'
+      ) || primaryRothAcct
+    : undefined;
 
 
 
@@ -146,6 +170,28 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
             <span>
               Notice: No active pre-tax tax-deferred accounts (401k/Traditional IRA) found with positive balances. Add or fund a pre-tax account in the Sources tab to simulate conversions.
             </span>
+          </div>
+        )}
+
+        {/* Dual-Spouse Equal Conversion & Destination Routing Notice */}
+        {hasSpouse && (
+          <div className="mt-4 p-3 rounded-lg bg-purple-50/70 border border-purple-200 text-purple-950 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-start sm:items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-purple-700 shrink-0 mt-0.5 sm:mt-0" />
+              <span>
+                <strong>2-Person Equal Conversion Active (50% / 50% Split):</strong> Annual conversions draw equally from{' '}
+                <strong>{primaryName}&apos;s</strong> and <strong>{spouseName}&apos;s</strong> tax-deferred accounts (rolling over any unused share if one spouse&apos;s pre-tax balance is lower).
+              </span>
+            </div>
+            <div className="text-[11px] text-purple-800 font-medium shrink-0">
+              <span>
+                {primaryName} &rarr; <strong>{primaryRothAcct?.name || 'Roth IRA'}</strong>
+              </span>
+              <span className="mx-1.5">&bull;</span>
+              <span>
+                {spouseName} &rarr; <strong>{spouseRothAcct?.name || 'Roth IRA'}</strong>
+              </span>
+            </div>
           </div>
         )}
 
@@ -388,6 +434,12 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
                 <th className="py-2.5 px-3">Age</th>
                 <th className="py-2.5 px-3 text-right">Bracket Headroom</th>
                 <th className="py-2.5 px-3 text-right text-purple-700">Annual Conversion</th>
+                {hasSpouse && (
+                  <>
+                    <th className="py-2.5 px-3 text-right text-blue-700">{primaryName} Conv.</th>
+                    <th className="py-2.5 px-3 text-right text-purple-700">{spouseName} Conv.</th>
+                  </>
+                )}
                 <th className="py-2.5 px-3 text-right text-rose-600">Conversion Tax Paid</th>
                 <th className="py-2.5 px-3 text-right">Pre-Tax Bal (Before)</th>
                 <th className="py-2.5 px-3 text-right">Pre-Tax Bal (After)</th>
@@ -397,7 +449,7 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
             <tbody className="divide-y divide-slate-200 font-mono">
               {comparison.conversionSchedule.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-400 font-sans">
+                  <td colSpan={hasSpouse ? 10 : 8} className="py-8 text-center text-slate-400 font-sans">
                     No conversion years matching the specified age window ({currentRothConfig.startAge} to {currentRothConfig.endAge}) or available pre-tax funds.
                   </td>
                 </tr>
@@ -415,6 +467,26 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
                     <td className="py-2.5 px-3 text-right font-bold text-purple-700">
                       {formatCurrency(row.convertedAmount)}
                     </td>
+                    {hasSpouse && (
+                      <>
+                        <td className="py-2.5 px-3 text-right text-blue-700 font-medium">
+                          <div>{formatCurrency(row.primaryConverted ?? 0)}</div>
+                          {row.primaryRothName && (row.primaryConverted ?? 0) > 0 && (
+                            <div className="text-[10px] font-sans text-slate-500">
+                              &rarr; {row.primaryRothName}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-purple-700 font-medium">
+                          <div>{formatCurrency(row.spouseConverted ?? 0)}</div>
+                          {row.spouseRothName && (row.spouseConverted ?? 0) > 0 && (
+                            <div className="text-[10px] font-sans text-slate-500">
+                              &rarr; {row.spouseRothName}
+                            </div>
+                          )}
+                        </td>
+                      </>
+                    )}
                     <td className="py-2.5 px-3 text-right text-rose-600 font-medium">
                       {formatCurrency(row.conversionTax)}
                     </td>
