@@ -90,6 +90,7 @@ export function getAdjustedAmount(
 
 export function isTaxDeferredSource(s: { monthly: string; taxType: string; accountType?: string; name: string }): boolean {
   if (s.monthly === 'Y') return false;
+  if (s.taxType === 'N/a' || s.taxType === 'Capital Gain') return false;
   if (s.taxType === 'Income') return true;
   const type = s.accountType;
   if (type === '401k' || type === 'ira') return true;
@@ -101,6 +102,7 @@ export function isTaxDeferredSource(s: { monthly: string; taxType: string; accou
 }
 
 export function isSourceNonAgi(s: { taxType: string; accountType?: string; name: string }): boolean {
+  if (s.taxType === 'Income' || s.taxType === 'Capital Gain') return false;
   if (s.taxType === 'N/a') return true;
   const type = s.accountType;
   if (type === 'cash' || type === 'roth') return true;
@@ -261,10 +263,19 @@ export function runSimulation(
     return getSourcePenaltyFreeAge(s, milestones, owner === 'spouse');
   };
 
-  const [retYearStr] = scenario.retDate.split('-');
+  const parseLocalDate = (dateStr?: string): Date | null => {
+    if (!dateStr) return null;
+    const parts = dateStr.split('-');
+    if (parts.length < 3) return null;
+    const [y, m, d] = parts.map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+  };
+
+  const [retYearStr] = (scenario.retDate || '2030-07-01').split('-');
   const retYear = parseInt(retYearStr, 10) || 2030;
-  const retDateObj = new Date(scenario.retDate);
-  const birthDateObj = new Date(scenario.birthDate);
+  const retDateObj = parseLocalDate(scenario.retDate) || new Date(retYear, 6, 1);
+  const birthDateObj = parseLocalDate(scenario.birthDate) || new Date(1970, 5, 15);
 
   // Primary age at retirement (years)
   const diffDays = (retDateObj.getTime() - birthDateObj.getTime()) / (1000 * 60 * 60 * 24);
@@ -277,13 +288,13 @@ export function runSimulation(
   let spouseRetYear = retYear;
 
   if (hasSpouse && scenario.spouseBirthDate) {
-    const spouseBirthObj = new Date(scenario.spouseBirthDate);
+    const spouseBirthObj = parseLocalDate(scenario.spouseBirthDate) || new Date(1972, 8, 20);
     const diffSpouse = (retDateObj.getTime() - spouseBirthObj.getTime()) / (1000 * 60 * 60 * 24);
     retSpouseAge = diffSpouse > 0 ? diffSpouse / 365.25 : 58;
 
     if (scenario.spouseRetDate) {
-      spouseRetDateObj = new Date(scenario.spouseRetDate);
-      const [spYr] = scenario.spouseRetDate.split('-');
+      spouseRetDateObj = parseLocalDate(scenario.spouseRetDate);
+      const [spYr] = (scenario.spouseRetDate || '2032-07-01').split('-');
       spouseRetYear = parseInt(spYr, 10) || retYear;
     }
   }
@@ -464,19 +475,24 @@ export function runSimulation(
 
     const totalSalary = primarySalary + spouseSalary;
 
-    // Phase calculation:
+    // Phase calculation (Phases 0 through 5 matching UI milestone architecture):
     let phase = 0;
     if (yr > 0) {
       const primaryReachedSS = age >= ssMinAge;
       const spouseReachedSS = hasSpouse && spouseAge !== undefined ? spouseAge >= spouseSsMinAge : primaryReachedSS;
       const ssReached = hasSpouse ? (primaryReachedSS || spouseReachedSS) : primaryReachedSS;
 
-      phase = 1 +
-        (age >= four01kAge ? 1 : 0) +
-        (age >= iraAge ? 1 : 0) +
-        (ssReached ? 1 : 0) +
-        (age >= milestones.medicareAge ? 1 : 0) +
-        (age >= milestones.rmdAge ? 1 : 0);
+      if (age < four01kAge) {
+        phase = 1;
+      } else if (age < iraAge) {
+        phase = 2;
+      } else if (!ssReached && age < milestones.medicareAge) {
+        phase = 3;
+      } else if (age < milestones.rmdAge) {
+        phase = 4;
+      } else {
+        phase = 5;
+      }
     }
 
     // Guaranteed income by source with owner verification
@@ -966,7 +982,9 @@ export function runSimulation(
       const maxConversion = Math.min(bracketRoom, annualCap, availablePreTax, maxAllowedByAca);
       if (maxConversion > 100) {
         rothConvertedAmount = maxConversion;
-        rothConversionTax = maxConversion * (rothConfig.targetBracketRate || rates.fedBracket);
+        const fedConvRate = rothConfig.targetBracketRate || rates.fedBracket;
+        const totalConvRate = fedConvRate + rates.stateRate;
+        rothConversionTax = maxConversion * totalConvRate;
 
         // Deduct conversion amount from pre-tax accounts
         let convRemaining = maxConversion;
@@ -983,6 +1001,48 @@ export function runSimulation(
       }
     }
 
+    // Find destination accounts for redirected RMD surplus and Roth conversion
+    const brokerageAcct = sources.find(s => s.monthly === 'N' && s.taxType === 'Capital Gain') ||
+      sources.find(s => s.monthly === 'N' && s.taxType !== 'Income') ||
+      sources.find(s => s.monthly === 'N');
+    const rothAcct = (rothConfig?.targetRothAccountId ? sources.find(s => s.id === rothConfig.targetRothAccountId) : null) ||
+      sources.find(s => s.monthly === 'N' && (s.accountType === 'roth' || s.name.toLowerCase().includes('roth'))) ||
+      sources.find(s => s.monthly === 'N' && s.taxType === 'N/a' && !isSourceCash(s)) ||
+      sources.find(s => s.monthly === 'N' && s.taxType === 'N/a');
+
+    // Deduct conversion taxes from brokerage / cash when paid from outside accounts
+    let rothTaxPaidOutside = 0;
+    const taxPaidOutsideBySource: Record<string, number> = {};
+    if (rothConvertedAmount > 0 && rothConfig?.taxPaymentMethod === 'outsideBrokerage') {
+      let taxRemaining = rothConversionTax;
+      if (brokerageAcct) {
+        const curWd = withdrawalsBySource[brokerageAcct.id] || 0;
+        const avail = Math.max(0, (beginBalanceBySource[brokerageAcct.id] || 0) - curWd);
+        const drawTax = Math.min(avail, taxRemaining);
+        if (drawTax > 0) {
+          withdrawalsBySource[brokerageAcct.id] = curWd + drawTax;
+          taxPaidOutsideBySource[brokerageAcct.id] = drawTax;
+          taxRemaining -= drawTax;
+          rothTaxPaidOutside += drawTax;
+        }
+      }
+      if (taxRemaining > 0) {
+        const cashSources = depletingAccessible.filter(i => isSourceCash(i.source));
+        for (const c of cashSources) {
+          const curWd = withdrawalsBySource[c.source.id] || 0;
+          const avail = Math.max(0, c.beginBal - curWd);
+          const drawTax = Math.min(avail, taxRemaining);
+          if (drawTax > 0) {
+            withdrawalsBySource[c.source.id] = curWd + drawTax;
+            taxPaidOutsideBySource[c.source.id] = (taxPaidOutsideBySource[c.source.id] || 0) + drawTax;
+            taxRemaining -= drawTax;
+            rothTaxPaidOutside += drawTax;
+            if (taxRemaining <= 0) break;
+          }
+        }
+      }
+    }
+
     // Actual total withdrawals across all accounts
     let wdTotal = 0;
     let livingWdTotal = 0;
@@ -993,7 +1053,8 @@ export function runSimulation(
     sources.forEach(s => {
       const totWd = withdrawalsBySource[s.id] || 0;
       const convDeduct = conversionDeductionsBySource[s.id] || 0;
-      const livingWd = Math.max(0, totWd - convDeduct);
+      const outsideTaxDeduct = taxPaidOutsideBySource[s.id] || 0;
+      const livingWd = Math.max(0, totWd - convDeduct - outsideTaxDeduct);
 
       wdTotal += totWd;
       livingWdTotal += livingWd;
@@ -1013,8 +1074,9 @@ export function runSimulation(
     const taxTarget = ordinaryLivingWd + taxableCapGains;
     const nonTaxTarget = taxFreeLivingWd + (capGainLivingWd * (1 - rates.capgainPct));
 
-    const fedTax = (rates.fedBracket * taxableOrdinaryIncome) + rothConversionTax;
-    const stateTax = rates.stateRate * taxableOrdinaryIncome;
+    const fedConvRate = rothConfig?.targetBracketRate || rates.fedBracket;
+    const fedTax = (rates.fedBracket * taxableOrdinaryIncome) + (rothConvertedAmount * fedConvRate);
+    const stateTax = (rates.stateRate * taxableOrdinaryIncome) + (rothConvertedAmount * rates.stateRate);
     const capGainTax = rates.capgainRate * taxableCapGains;
     const totalTax = fedTax + stateTax + capGainTax;
 
@@ -1042,11 +1104,6 @@ export function runSimulation(
       acaSubsidySavings = acaMetrics.subsidyAmount;
     }
 
-    // Find destination accounts for redirected RMD surplus and Roth conversion
-    const brokerageAcct = sources.find(s => s.monthly === 'N' && s.taxType === 'Capital Gain') ||
-      sources.find(s => s.monthly === 'N' && s.taxType !== 'Income');
-    const rothAcct = sources.find(s => s.monthly === 'N' && s.taxType === 'N/a');
-
     // End balances and Total Income per source
     const endBalanceBySource: Record<string, number> = {};
     const incomeBySource: Record<string, number> = {};
@@ -1067,10 +1124,20 @@ export function runSimulation(
 
         // Deposit systematic Roth conversion into Roth account
         if (rothAcct && s.id === rothAcct.id && rothConvertedAmount > 0) {
+          const unpaidTax = Math.max(0, rothConversionTax - rothTaxPaidOutside);
           const netToRoth = rothConfig?.taxPaymentMethod === 'withhold'
             ? Math.max(0, rothConvertedAmount - rothConversionTax)
-            : rothConvertedAmount;
+            : Math.max(0, rothConvertedAmount - unpaidTax);
           remaining += netToRoth;
+        }
+
+        // Reinvest/credit ACA subsidy savings into cash or brokerage account if configured
+        if (acaConfig?.adjustMedicalExpensesWithSubsidy && acaSubsidySavings > 0) {
+          const acaDestAcct = sources.find(src => src.monthly === 'N' && (isSourceCash(src) || src.taxType === 'Capital Gain')) ||
+            sources.find(src => src.monthly === 'N');
+          if (acaDestAcct && s.id === acaDestAcct.id) {
+            remaining += acaSubsidySavings;
+          }
         }
 
         const endBal = remaining * (1 + effInvestRate);
@@ -1283,7 +1350,7 @@ export function compareRothConversion(
 
       // Roth balance sum
       const rothBal = config.sources
-        .filter(s => s.monthly === 'N' && s.taxType === 'N/a')
+        .filter(s => s.monthly === 'N' && (s.accountType === 'roth' || s.name.toLowerCase().includes('roth') || (s.taxType === 'N/a' && !isSourceCash(s))))
         .reduce((sum, s) => sum + (y.endBalanceBySource[s.id] || 0), 0);
 
       const baseTaxable = y.salary + y.guarTaxable + (y.taxTarget || 0);
@@ -1345,7 +1412,7 @@ export function runMonteCarloSimulation(
   stressPreset: StressPreset = 'baseline',
   dollarMode: DollarDisplayMode = 'real'
 ): MonteCarloPercentileResult {
-  const [retYearStr] = config.scenario.retDate.split('-');
+  const [retYearStr] = (config.scenario?.retDate || '2030-07-01').split('-');
   const retYear = parseInt(retYearStr, 10) || 2030;
   const projYears = config.projectionYears;
 

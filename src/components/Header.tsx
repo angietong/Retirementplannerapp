@@ -36,13 +36,13 @@ export const Header: React.FC<HeaderProps> = ({
                 <p className="text-xs text-slate-500 font-medium">
                   Plan for{' '}
                   <span className="text-slate-800 font-semibold">
-                    {config.scenario.userName}
-                    {config.scenario.hasSpouse && config.scenario.spouseName
+                    {config.scenario?.userName || 'User'}
+                    {config.scenario?.hasSpouse && config.scenario?.spouseName
                       ? ` & ${config.scenario.spouseName}`
                       : ''}
                   </span>{' '}
-                  &bull; Target Retirement: {config.scenario.retDate}
-                  {config.scenario.hasSpouse && config.scenario.spouseRetDate
+                  &bull; Target Retirement: {config.scenario?.retDate || '2030-07-01'}
+                  {config.scenario?.hasSpouse && config.scenario?.spouseRetDate
                     ? ` (Spouse: ${config.scenario.spouseRetDate})`
                     : ''}
                 </p>

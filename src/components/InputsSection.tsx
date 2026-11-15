@@ -26,14 +26,14 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange, 
   const [activeTab, setActiveTab] = useState<'sources' | 'scenario' | 'rates' | 'expenses' | 'majorExpenses' | 'aca'>('sources');
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
 
-  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
-  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
-  const hasSpouse = Boolean(config.scenario.hasSpouse);
+  const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const hasSpouse = Boolean(config.scenario?.hasSpouse);
   const majorExpenses = config.majorExpenses || [];
 
-  const [birthYearStr] = config.scenario.birthDate.split('-');
+  const [birthYearStr] = (config.scenario?.birthDate || '1970-06-15').split('-');
   const birthYear = parseInt(birthYearStr, 10) || 1970;
-  const [retYearStr] = config.scenario.retDate.split('-');
+  const [retYearStr] = (config.scenario?.retDate || '2030-07-01').split('-');
   const retYear = parseInt(retYearStr, 10) || 2030;
   const currentRetAge = Math.round(retYear - birthYear);
 

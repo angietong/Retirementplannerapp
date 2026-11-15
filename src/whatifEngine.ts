@@ -22,8 +22,8 @@ export function runWhatIfComparisons(
   const baselinePeakRmd = Math.max(0, ...baselineSim.years.map(y => y.rmdTotal || 0));
 
   // Determine key planning milestone ages
-  const [retYearStr] = config.scenario.retDate.split('-');
-  const [birthYearStr] = config.scenario.birthDate.split('-');
+  const [retYearStr] = (config.scenario?.retDate || '2030-07-01').split('-');
+  const [birthYearStr] = (config.scenario?.birthDate || '1970-06-15').split('-');
   const retYear = parseInt(retYearStr, 10) || 2030;
   const birthYear = parseInt(birthYearStr, 10) || 1970;
   const approxRetAge = Math.max(50, Math.min(75, retYear - birthYear));

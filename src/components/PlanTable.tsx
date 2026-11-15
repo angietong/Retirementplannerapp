@@ -20,9 +20,9 @@ export const PlanTable: React.FC<PlanTableProps> = ({
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [filterPhase, setFilterPhase] = useState<string>('all');
 
-  const hasSpouse = Boolean(config.scenario.hasSpouse);
-  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
-  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const hasSpouse = Boolean(config.scenario?.hasSpouse);
+  const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
 
   const toggleExpand = (yr: number) => {
     setExpandedYear(expandedYear === yr ? null : yr);
@@ -87,11 +87,11 @@ export const PlanTable: React.FC<PlanTableProps> = ({
           >
             <option value="all">All Years ({years.length})</option>
             <option value="0">Phase 0: Retirement Year Proration</option>
-            <option value="1">Phase 1: Pre-Milestones</option>
-            <option value="2">Phase 2: 401k/IRA Access (Age {config.milestones.retireAcctAge}+)</option>
-            <option value="3">Phase 3: SS Min (Age {config.milestones.ssMinAge}+)</option>
-            <option value="4">Phase 4: Medicare (Age {config.milestones.medicareAge}+)</option>
-            <option value="5">Phase 5: RMDs (Age {config.milestones.rmdAge}+)</option>
+            <option value="1">Phase 1: Pre-Milestones (Early Retirement)</option>
+            <option value="2">Phase 2: 401(k) Access (Rule of 55 / Age {config.milestones.four01kAge ?? 55}+)</option>
+            <option value="3">Phase 3: IRA Access (Age {config.milestones.iraAge ?? 60}+)</option>
+            <option value="4">Phase 4: SS & Medicare (Age {config.milestones.ssMinAge}–{config.milestones.medicareAge}+)</option>
+            <option value="5">Phase 5: RMD Mandate (Age {config.milestones.rmdAge}+)</option>
             <option value="depleted">Depleted Years Only</option>
           </select>
         </div>
@@ -168,6 +168,10 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                             ? 'bg-blue-100 text-blue-800'
                             : y.phase === 2
                             ? 'bg-emerald-100 text-emerald-800'
+                            : y.phase === 3
+                            ? 'bg-indigo-100 text-indigo-800'
+                            : y.phase === 4
+                            ? 'bg-sky-100 text-sky-800'
                             : 'bg-purple-100 text-purple-800'
                         }`}
                       >

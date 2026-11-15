@@ -77,37 +77,7 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
     .filter(s => s.monthly === 'N' && s.taxType === 'Income')
     .reduce((sum, s) => sum + (s.balance || 0), 0);
 
-  // Prepare chart comparison data
-  const comparisonChartData = useMemo(() => {
-    const baselineResults = compareRothConversion(
-      config,
-      { ...currentRothConfig, enabled: false },
-      stressPreset
-    );
-    const rothResults = compareRothConversion(
-      config,
-      { ...currentRothConfig, enabled: true },
-      stressPreset
-    );
 
-    const data: any[] = [];
-    const maxYears = Math.min(
-      baselineResults.conversionSchedule.length + 30,
-      config.projectionYears
-    );
-
-    for (let yr = 0; yr < config.projectionYears; yr++) {
-      const baseY = baselineResults.baselineSummary;
-      // Extract from raw simulation years
-      // To get smooth yearly comparisons, let's map over each year
-      data.push({
-        year: parseInt(config.scenario.retDate.split('-')[0] || '2030', 10) + yr,
-        age: 60 + yr,
-      });
-    }
-
-    return comparison.conversionSchedule;
-  }, [comparison, config, currentRothConfig, stressPreset]);
 
   // Quick Bracket Presets
   const applyBracketPreset = (bracket: '12%' | '22%' | '24%') => {

@@ -16,31 +16,41 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="RetirePlan" />
     <script>
-      // Safe WebSocket guard for Vite client in iframe / proxy environments
-      if (typeof window !== 'undefined' && window.WebSocket) {
-        const origSend = window.WebSocket.prototype.send;
-        window.WebSocket.prototype.send = function(...args) {
-          if (this.readyState === window.WebSocket.OPEN) {
-            try {
-              return origSend.apply(this, args);
-            } catch (err) {
-              // Ignore WebSocket send failure in iframe proxy environment
-            }
+      // Safe WebSocket and console guard for Vite client in iframe / proxy environments
+      if (typeof window !== 'undefined') {
+        const origConsoleError = console.error;
+        console.error = function(...args) {
+          if (args.length > 0 && typeof args[0] === 'string' && (args[0].includes('[vite] failed to connect to websocket') || args[0].includes('WebSocket closed without opened'))) {
+            return;
           }
+          return origConsoleError.apply(console, args);
         };
-        window.addEventListener('unhandledrejection', function(e) {
-          if (e.reason && (e.reason.message?.includes?.('vite') || e.reason.stack?.includes?.('@vite/client') || e.reason.stack?.includes?.('WebSocket'))) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-          }
-        });
-        window.addEventListener('error', function(e) {
-          if (e.message && (e.message.includes('WebSocket') || e.message.includes('@vite/client') || e.filename?.includes?.('@vite/client'))) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            return true;
-          }
-        });
+
+        if (window.WebSocket) {
+          const origSend = window.WebSocket.prototype.send;
+          window.WebSocket.prototype.send = function(...args) {
+            if (this.readyState === window.WebSocket.OPEN) {
+              try {
+                return origSend.apply(this, args);
+              } catch (err) {
+                // Ignore WebSocket send failure in iframe proxy environment
+              }
+            }
+          };
+          window.addEventListener('unhandledrejection', function(e) {
+            if (e.reason && (e.reason.message?.includes?.('vite') || e.reason.message?.includes?.('WebSocket') || e.reason.stack?.includes?.('@vite/client') || e.reason.stack?.includes?.('WebSocket'))) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+            }
+          });
+          window.addEventListener('error', function(e) {
+            if (e.message && (e.message.includes('WebSocket') || e.message.includes('@vite/client') || e.filename?.includes?.('@vite/client'))) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              return true;
+            }
+          });
+        }
       }
     </script>
   </head>

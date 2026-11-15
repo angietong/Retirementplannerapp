@@ -15,28 +15,69 @@ import { AcaSubsidySimulator } from './components/AcaSubsidySimulator';
 import { WhatIfComparisonView } from './components/WhatIfComparisonView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
-export function App() {
-  const [config, setConfig] = useState<PlannerConfig>(() => {
+function loadSavedConfig(): PlannerConfig {
+  try {
     const saved = localStorage.getItem('rp_config_v2');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return {
-          ...DEFAULT_CONFIG,
-          ...parsed,
-          majorExpenses: parsed.majorExpenses || DEFAULT_CONFIG.majorExpenses,
-          expenses: {
-            ...DEFAULT_CONFIG.expenses,
-            ...(parsed.expenses || {}),
-          },
-          acaOptimization: parsed.acaOptimization || DEFAULT_CONFIG.acaOptimization,
-        };
-      } catch (e) {
-        console.error('Failed to parse saved config', e);
-      }
-    }
+    if (!saved) return DEFAULT_CONFIG;
+    const parsed = JSON.parse(saved);
+    if (!parsed || typeof parsed !== 'object') return DEFAULT_CONFIG;
+
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      scenario: {
+        ...DEFAULT_CONFIG.scenario,
+        ...(parsed.scenario || {}),
+      },
+      milestones: {
+        ...DEFAULT_CONFIG.milestones,
+        ...(parsed.milestones || {}),
+      },
+      rates: {
+        ...DEFAULT_CONFIG.rates,
+        ...(parsed.rates || {}),
+      },
+      expenses: {
+        ...DEFAULT_CONFIG.expenses,
+        ...(parsed.expenses || {}),
+      },
+      majorExpenses: Array.isArray(parsed.majorExpenses) && parsed.majorExpenses.length > 0
+        ? parsed.majorExpenses
+        : DEFAULT_CONFIG.majorExpenses,
+      rothConversion: {
+        ...DEFAULT_CONFIG.rothConversion,
+        ...(parsed.rothConversion || {}),
+      },
+      taxDeferredStrategy: {
+        ...DEFAULT_CONFIG.taxDeferredStrategy,
+        ...(parsed.taxDeferredStrategy || {}),
+      },
+      acaOptimization: {
+        ...DEFAULT_CONFIG.acaOptimization,
+        ...(parsed.acaOptimization || {}),
+      },
+      sources: Array.isArray(parsed.sources) && parsed.sources.length > 0
+        ? parsed.sources.map((s: any, idx: number) => {
+            const defaultSource = DEFAULT_CONFIG.sources[idx] || DEFAULT_CONFIG.sources[0];
+            return {
+              ...defaultSource,
+              ...s,
+              balance: typeof s?.balance === 'number' && !isNaN(s.balance) ? s.balance : defaultSource.balance,
+              priority: typeof s?.priority === 'number' ? s.priority : defaultSource.priority,
+              taxType: s?.taxType || defaultSource.taxType,
+              monthly: s?.monthly || defaultSource.monthly,
+            };
+          })
+        : DEFAULT_CONFIG.sources,
+    };
+  } catch (e) {
+    console.warn('Failed to parse saved config, using defaults', e);
     return DEFAULT_CONFIG;
-  });
+  }
+}
+
+export function App() {
+  const [config, setConfig] = useState<PlannerConfig>(() => loadSavedConfig());
 
   const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'table' | 'roth' | 'aca' | 'whatif' | 'inputs'>('overview');
   const [dollarMode, setDollarMode] = useState<DollarDisplayMode>('nominal');
@@ -71,9 +112,9 @@ export function App() {
 
   const currentPresetInfo = STRESS_PRESETS.find(p => p.id === activePreset) || STRESS_PRESETS[0];
 
-  const hasSpouse = Boolean(config.scenario.hasSpouse);
-  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
-  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const hasSpouse = Boolean(config.scenario?.hasSpouse);
+  const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
 
   const getDeflator = (yrIndex: number) => {
     if (dollarMode === 'nominal') return 1;
@@ -156,6 +197,7 @@ export function App() {
         {/* KPI Cards across the top for immediate situational awareness */}
         <KeyResultsCards
           summary={simulationResults.summary}
+          years={simulationResults.years}
           config={config}
           dollarMode={dollarMode}
           stressPresetName={currentPresetInfo?.name}

@@ -204,6 +204,26 @@ export const AcaTab: React.FC<AcaTabProps> = ({ config, onChange, onNavigateToSi
             Which non-taxable account to draw from first when bridging the living expense gap.
           </p>
         </div>
+
+        {/* Reinvest Subsidy Savings */}
+        <div className="md:col-span-2 pt-2 border-t border-slate-100">
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(acaConfig.adjustMedicalExpensesWithSubsidy)}
+              onChange={e => updateAcaConfig({ adjustMedicalExpensesWithSubsidy: e.target.checked })}
+              className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+            />
+            <div>
+              <span className="text-xs font-semibold text-slate-800">
+                Credit Subsidy Savings to Portfolio (Reinvest Premium Credits)
+              </span>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                When enabled, qualified annual ACA premium tax credits directly preserve portfolio capital by crediting savings to your cash/brokerage reserve.
+              </p>
+            </div>
+          </label>
+        </div>
       </div>
 
       {/* Info Callout */}

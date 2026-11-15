@@ -75,13 +75,13 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
     };
   });
 
-  const hasSpouse = Boolean(config.scenario.hasSpouse);
-  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
-  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const hasSpouse = Boolean(config.scenario?.hasSpouse);
+  const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
 
   // Find milestone calendar years
-  const retYear = parseInt(config.scenario.retDate.split('-')[0], 10) || 2030;
-  const spouseRetYear = hasSpouse && config.scenario.spouseRetDate
+  const retYear = parseInt((config.scenario?.retDate || '2030-07-01').split('-')[0], 10) || 2030;
+  const spouseRetYear = hasSpouse && config.scenario?.spouseRetDate
     ? parseInt(config.scenario.spouseRetDate.split('-')[0], 10)
     : null;
 

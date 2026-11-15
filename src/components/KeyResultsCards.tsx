@@ -1,11 +1,12 @@
 import React from 'react';
 import { ShieldAlert, ShieldCheck, Clock, Wallet, ReceiptText, Users, DollarSign } from 'lucide-react';
-import { PlanSummary, PlannerConfig, DollarDisplayMode } from '../types';
+import { PlanSummary, PlannerConfig, DollarDisplayMode, YearSimulationResult } from '../types';
 import { formatCurrency } from '../utils/formatters';
 
 interface KeyResultsCardsProps {
   summary: PlanSummary;
   config: PlannerConfig;
+  years?: YearSimulationResult[];
   dollarMode?: DollarDisplayMode;
   stressPresetName?: string;
   isCustomStress?: boolean;
@@ -14,12 +15,21 @@ interface KeyResultsCardsProps {
 export const KeyResultsCards: React.FC<KeyResultsCardsProps> = ({
   summary,
   config,
+  years,
   dollarMode = 'nominal',
   stressPresetName = 'Baseline Plan',
   isCustomStress = false,
 }) => {
   const isSustained = summary.fundsRunOutYear === null;
   const hasSpouse = Boolean(config.scenario.hasSpouse);
+
+  const realTotalTaxesPaid = React.useMemo(() => {
+    if (!years || years.length === 0) return summary.totalTaxesPaid;
+    return years.reduce((sum, y) => {
+      const deflator = Math.pow(1 + config.rates.inflationRate, y.yr);
+      return sum + (y.totalTax / (deflator > 0 ? deflator : 1));
+    }, 0);
+  }, [years, summary.totalTaxesPaid, config.rates.inflationRate]);
 
   const horizonText = hasSpouse
     ? `Sustains through primary age ${config.scenario.lifeExpAge} & spouse age ${config.scenario.spouseLifeExpAge || 92}`
@@ -118,7 +128,7 @@ export const KeyResultsCards: React.FC<KeyResultsCardsProps> = ({
         </div>
         <div>
           <div className="text-2xl font-bold text-slate-900">
-            {formatCurrency(summary.totalTaxesPaid)}
+            {formatCurrency(dollarMode === 'real' ? realTotalTaxesPaid : summary.totalTaxesPaid)}
           </div>
           <p className="text-xs text-slate-500 mt-1">
             Federal, state, and capital gains projections

@@ -6,9 +6,9 @@ export function exportToExcel(
   results: { years: YearSimulationResult[]; summary: PlanSummary }
 ) {
   const wb = XLSX.utils.book_new();
-  const hasSpouse = Boolean(config.scenario.hasSpouse);
-  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
-  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const hasSpouse = Boolean(config.scenario?.hasSpouse);
+  const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
 
   // 1. Inputs Tab
   const inputRows: (string | number | boolean)[][] = [

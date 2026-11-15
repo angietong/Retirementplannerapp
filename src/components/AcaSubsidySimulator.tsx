@@ -38,9 +38,9 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
   dollarMode = 'nominal',
   onUpdateConfig,
 }) => {
-  const hasSpouse = Boolean(config.scenario.hasSpouse);
-  const primaryName = config.scenario.userName.split(' ')[0] || 'Primary';
-  const spouseName = (config.scenario.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const hasSpouse = Boolean(config.scenario?.hasSpouse);
+  const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
+  const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
 
   const defaultHouseholdSize: 1 | 2 = hasSpouse ? 2 : 1;
   const acaConfig: AcaOptimizationConfig = useMemo(() => {
@@ -80,7 +80,7 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
 
   const getDeflator = (calYear: number) => {
     if (dollarMode === 'nominal') return 1;
-    const [retYearStr] = config.scenario.retDate.split('-');
+    const [retYearStr] = (config.scenario?.retDate || '2030-07-01').split('-');
     const retYear = parseInt(retYearStr, 10) || 2030;
     const yr = Math.max(0, calYear - retYear);
     return Math.pow(1 + config.rates.inflationRate, yr);
@@ -266,6 +266,26 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
             <p className="text-[11px] text-slate-500 mt-1">
               Available Non-AGI reserves: <strong className="text-emerald-700">{formatCurrency(nonAgiTotalBalance)}</strong>
             </p>
+          </div>
+
+          {/* Reinvest Subsidy Savings */}
+          <div className="md:col-span-3 pt-3 border-t border-slate-100">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(acaConfig.adjustMedicalExpensesWithSubsidy)}
+                onChange={e => updateAcaConfig({ adjustMedicalExpensesWithSubsidy: e.target.checked })}
+                className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+              />
+              <div>
+                <span className="text-xs font-semibold text-slate-800">
+                  Credit Subsidy Savings to Portfolio (Reinvest Healthcare Credits)
+                </span>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  When enabled, annual ACA premium tax credits are directly credited to your portfolio cash reserve, so subsidy savings compound and preserve portfolio longevity.
+                </p>
+              </div>
+            </label>
           </div>
         </div>
       </div>

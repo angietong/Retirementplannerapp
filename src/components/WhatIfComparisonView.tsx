@@ -25,8 +25,19 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
   const selectedScenario = scenarios.find(s => s.id === selectedScenarioId) || scenarios[1];
   const baselineScenario = scenarios[0];
 
-  const formatCurrency = (val: number, yrIndex: number = 0) => {
-    const adjusted = val / getDeflator(yrIndex);
+  const getRealTaxes = (scen: WhatIfScenarioResult) => {
+    if (dollarMode === 'nominal') return scen.totalTaxesPaid;
+    return scen.years.reduce((sum, y) => sum + y.totalTax / getDeflator(y.yr), 0);
+  };
+
+  const getRealFinalBalance = (bal: number) => {
+    if (dollarMode === 'nominal') return bal;
+    return bal / getDeflator(config.projectionYears - 1);
+  };
+
+  const formatCurrency = (val: number, yrIndex?: number) => {
+    const deflator = yrIndex !== undefined ? getDeflator(yrIndex) : 1;
+    const adjusted = val / deflator;
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -51,8 +62,12 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
         {scenarios.slice(1).map(scen => {
           const isSelected = selectedScenarioId === scen.id;
-          const taxDiff = scen.totalTaxesPaid - baselineScenario.totalTaxesPaid;
-          const estateDiff = scen.finalBalance - baselineScenario.finalBalance;
+          const scenTax = getRealTaxes(scen);
+          const baseTax = getRealTaxes(baselineScenario);
+          const taxDiff = scenTax - baseTax;
+          const scenEstate = getRealFinalBalance(scen.finalBalance);
+          const baseEstate = getRealFinalBalance(baselineScenario.finalBalance);
+          const estateDiff = scenEstate - baseEstate;
 
           return (
             <div
@@ -78,13 +93,13 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
                 <div className="flex justify-between">
                   <span className="text-slate-500">Lifetime Tax:</span>
                   <span className={`font-semibold ${taxDiff <= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
-                    {formatCurrency(scen.totalTaxesPaid)}
+                    {formatCurrency(scenTax)}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Estate Net Worth:</span>
                   <span className="font-semibold text-slate-900">
-                    {formatCurrency(scen.finalBalance)}
+                    {formatCurrency(scenEstate)}
                   </span>
                 </div>
               </div>
@@ -116,11 +131,11 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
             <span className="text-xs font-semibold text-slate-500 block mb-1">Total Lifetime Taxes Paid</span>
             <div className="text-lg font-extrabold text-slate-900 mb-1">
-              {formatCurrency(selectedScenario.totalTaxesPaid)}
+              {formatCurrency(getRealTaxes(selectedScenario))}
             </div>
-            <div className={`text-[11px] font-medium ${selectedScenario.totalTaxesPaid <= baselineScenario.totalTaxesPaid ? 'text-emerald-700' : 'text-rose-600'}`}>
-              {selectedScenario.totalTaxesPaid <= baselineScenario.totalTaxesPaid ? '▼ ' : '▲ '}
-              {formatCurrency(Math.abs(selectedScenario.totalTaxesPaid - baselineScenario.totalTaxesPaid))} vs Baseline
+            <div className={`text-[11px] font-medium ${getRealTaxes(selectedScenario) <= getRealTaxes(baselineScenario) ? 'text-emerald-700' : 'text-rose-600'}`}>
+              {getRealTaxes(selectedScenario) <= getRealTaxes(baselineScenario) ? '▼ ' : '▲ '}
+              {formatCurrency(Math.abs(getRealTaxes(selectedScenario) - getRealTaxes(baselineScenario)))} vs Baseline
             </div>
           </div>
 
@@ -137,11 +152,11 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
             <span className="text-xs font-semibold text-slate-500 block mb-1">Final Estate Net Worth</span>
             <div className="text-lg font-extrabold text-slate-900 mb-1">
-              {formatCurrency(selectedScenario.finalBalance)}
+              {formatCurrency(getRealFinalBalance(selectedScenario.finalBalance))}
             </div>
             <div className={`text-[11px] font-medium ${selectedScenario.finalBalance >= baselineScenario.finalBalance ? 'text-emerald-700' : 'text-slate-600'}`}>
               {selectedScenario.finalBalance >= baselineScenario.finalBalance ? '▲ ' : '▼ '}
-              {formatCurrency(selectedScenario.finalBalance - baselineScenario.finalBalance)} vs Baseline
+              {formatCurrency(Math.abs(getRealFinalBalance(selectedScenario.finalBalance) - getRealFinalBalance(baselineScenario.finalBalance)))} vs Baseline
             </div>
           </div>
 
