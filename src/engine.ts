@@ -285,11 +285,6 @@ export function runSimulation(
   const spouseIraAge = milestones.spouseIraAge ?? iraAge;
   const spouseSsMinAge = milestones.spouseSsMinAge ?? ssMinAge;
 
-  const getSourceRequiredAge = (s: typeof sources[0]) => {
-    const owner = s.owner || 'primary';
-    return getSourcePenaltyFreeAge(s, milestones, owner === 'spouse');
-  };
-
   const parseLocalDate = (dateStr?: string): Date | null => {
     if (!dateStr) return null;
     const parts = dateStr.split('-');
@@ -331,10 +326,13 @@ export function runSimulation(
   const daysWorked = (retDateObj.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24);
   const primaryWorkFrac = Math.max(0, Math.min(1, daysWorked / 365));
 
-  const incRate = rates.fedBracket + rates.stateRate;
-  const rTax = scenario.taxablePct * (
-    (1 - rates.capgainPct) * incRate + rates.capgainPct * rates.capgainRate
-  );
+  const incRate = Math.min(0.95, Math.max(0, rates.fedBracket + rates.stateRate));
+  const cgEffRate = Math.min(0.95, Math.max(0, rates.capgainPct * rates.capgainRate));
+  const getSourceMarginalTaxRate = (s: { taxType: string; accountType?: string; name: string; monthly: string }): number => {
+    if (isTaxDeferredSource(s) || s.taxType === 'Income') return incRate;
+    if (s.taxType === 'Capital Gain' || s.accountType === 'brokerage') return cgEffRate;
+    return 0;
+  };
 
   // Pre-process and index source attributes once outside the simulation loops
   interface ProcessedSourceMeta {
@@ -385,11 +383,13 @@ export function runSimulation(
   });
 
   let fundsRunOutYear: number | null = null;
+  let firstZeroYearIdx: number | null = null;
   let yearsFundingLasts = projectionYears;
   let totalTaxesPaid = 0;
   let totalWithdrawals = 0;
   let cumGeneralInflation = 1;
   let cumMedicalInflation = 1;
+  const triggeredMajorExpenseIndices = new Set<number>();
 
   for (let yr = 0; yr < projectionYears; yr++) {
     const calYear = retYear + yr;
@@ -438,25 +438,39 @@ export function runSimulation(
       cumMedicalInflation *= (1 + effMedicalInflationRate);
     }
 
-    // Check Medicare milestone status (age 65+)
-    const isMedicareActive = age >= medicareAge;
+    // Check Medicare milestone status per person (prorate bridge years for different-age spouses)
+    const isPrimaryOnMedicare = age >= medicareAge;
+    const isSpouseOnMedicare = hasSpouse && spouseAge !== undefined ? spouseAge >= medicareAge : false;
+    const isMedicareActive = hasSpouse && spouseAge !== undefined
+      ? (isPrimaryOnMedicare || isSpouseOnMedicare)
+      : isPrimaryOnMedicare;
+    const medicareFrac = hasSpouse && spouseAge !== undefined
+      ? ((isPrimaryOnMedicare ? 1 : 0) + (isSpouseOnMedicare ? 1 : 0)) / 2
+      : (isPrimaryOnMedicare ? 1 : 0);
 
-    // Base medical expenses (switching to post-Medicare amounts if configured)
+    // Base medical expenses (blending pre-Medicare and post-Medicare amounts per covered spouse)
     let baseMedPremium = expenses.expMedPremium;
     let baseMedOop = expenses.expMedOop;
 
-    if (isMedicareActive && expenses.hasMedicarePostExp) {
-      baseMedPremium = expenses.expMedPremiumPost ?? expenses.expMedPremium;
-      baseMedOop = expenses.expMedOopPost ?? expenses.expMedOop;
+    if (medicareFrac > 0 && expenses.hasMedicarePostExp) {
+      const postPrem = expenses.expMedPremiumPost ?? expenses.expMedPremium;
+      const postOop = expenses.expMedOopPost ?? expenses.expMedOop;
+      baseMedPremium = (1 - medicareFrac) * expenses.expMedPremium + medicareFrac * postPrem;
+      baseMedOop = (1 - medicareFrac) * expenses.expMedOop + medicareFrac * postOop;
     }
 
-    // Major expenses calculation for specified age (up to 10 entries)
+    // Major expenses calculation for specified age (triggers strictly once per expense)
     let yrMajorExpenses = 0;
     const yrMajorExpensesList: { name: string; amount: number }[] = [];
 
     if (config.majorExpenses && config.majorExpenses.length > 0) {
-      config.majorExpenses.forEach(m => {
-        if (m.amount > 0 && (Math.floor(m.age) === Math.floor(age) || Math.round(m.age) === Math.round(age))) {
+      config.majorExpenses.forEach((m, idx) => {
+        if (
+          m.amount > 0 &&
+          !triggeredMajorExpenseIndices.has(idx) &&
+          Math.floor(age) === Math.floor(m.age)
+        ) {
+          triggeredMajorExpenseIndices.add(idx);
           const nominalAmount = m.inflationAdjusted !== false ? m.amount * cumGeneralInflation : m.amount;
           yrMajorExpenses += nominalAmount;
           yrMajorExpensesList.push({
@@ -562,14 +576,23 @@ export function runSimulation(
     });
 
     // -------------------------------------------------------------
-    // RMD Calculation (SECURE 2.0 at age 73 using official IRS divisors)
+    // RMD Calculation & Mandate (SECURE 2.0 at age 73 using official IRS divisors)
+    // Enforced FIRST across ALL tax-deferred accounts (regardless of startAge)
+    // so mandated RMDs fund living expenses before liquidating Cash/Brokerage.
     // -------------------------------------------------------------
     const rmdBySource: Record<string, number> = {};
     let rmdTotal = 0;
     let rmdDivisor = 0;
 
+    const withdrawalsBySource: Record<string, number> = {};
     processedSources.forEach(s => {
+      withdrawalsBySource[s.id] = 0;
       rmdBySource[s.id] = 0;
+    });
+
+    const tdWithdrawalByOwner = { primary: 0, spouse: 0 };
+
+    processedSources.forEach(s => {
       if (!s.isMonthly && s.isTaxDef) {
         let ownerAge = age;
         if (s.owner === 'spouse' && hasSpouse && spouseAge !== undefined) {
@@ -582,10 +605,19 @@ export function runSimulation(
           const divisor = getIrsRmdDivisor(ownerAge);
           if (divisor > 0) {
             const acctBegBal = Math.max(0, beginBalanceBySource[s.id] || 0);
-            const reqRmd = acctBegBal / divisor;
+            const reqRmd = Math.min(acctBegBal, acctBegBal / divisor);
             rmdBySource[s.id] = reqRmd;
             rmdTotal += reqRmd;
             if (rmdDivisor === 0) rmdDivisor = divisor;
+
+            if (reqRmd > 0) {
+              withdrawalsBySource[s.id] = reqRmd;
+              if (s.owner === 'spouse') {
+                tdWithdrawalByOwner.spouse += reqRmd;
+              } else {
+                tdWithdrawalByOwner.primary += reqRmd;
+              }
+            }
           }
         }
       }
@@ -595,10 +627,16 @@ export function runSimulation(
       rmdDivisor = getIrsRmdDivisor(age >= rmdAge ? age : spouseAge!);
     }
 
-    // Gross-up base withdrawal formula needed to meet living expenses
-    const denominator = Math.max(0.0001, 1 - rTax);
-    const rawWd = (yrExpenses - (guarTotal + totalSalary) + incRate * taxOther) / denominator;
-    const baseWdTotal = Math.max(0, rawWd);
+    // Exact after-tax net cash needed from depleting portfolio to cover living expenses
+    // (after accounting for salary, guaranteed income, and ordinary tax on those inflows)
+    const netCashNeeded = Math.max(0, yrExpenses + incRate * taxOther - (guarTotal + totalSalary));
+    const rmdNetCash = rmdTotal * (1 - incRate);
+
+    let remNetNeeded = Math.max(0, netCashNeeded - rmdNetCash);
+    let rmdSurplusReinvested = Math.max(0, rmdNetCash - netCashNeeded);
+    let rmdSurplusGross = rmdSurplusReinvested > 0 && incRate < 0.9999
+      ? rmdSurplusReinvested / (1 - incRate)
+      : 0;
 
     // Prepare accessible depleting sources by priority
     interface AccessibleSource {
@@ -635,28 +673,24 @@ export function runSimulation(
 
     depletingAccessible.sort((a, b) => a.orderKey - b.orderKey);
 
-    // Initial normal priority distribution to cover base living needs
-    const withdrawalsBySource: Record<string, number> = {};
-    processedSources.forEach(s => {
-      withdrawalsBySource[s.id] = 0;
-    });
+    const getAvailBal = (sourceId: string, beginBal: number): number =>
+      Math.max(0, beginBal - (withdrawalsBySource[sourceId] || 0));
 
     let isSynchronizedTdActive = false;
-    const tdWithdrawalByOwner = { primary: 0, spouse: 0 };
 
-    // Synchronized multi-member tax-deferred strategy check
+    // Synchronized multi-member tax-deferred strategy check (using remaining balances after RMDs)
     const tdStrategyEnabled = config.taxDeferredStrategy?.enabled ?? true;
     const tdStrategyMethod = config.taxDeferredStrategy?.method ?? 'proportional';
 
     const primaryTdItems = depletingAccessible.filter(
-      item => item.isTaxDeferred && item.owner !== 'spouse' && item.beginBal > 0
+      item => item.isTaxDeferred && item.owner !== 'spouse' && getAvailBal(item.source.id, item.beginBal) > 0
     );
     const spouseTdItems = depletingAccessible.filter(
-      item => item.isTaxDeferred && item.owner === 'spouse' && item.beginBal > 0
+      item => item.isTaxDeferred && item.owner === 'spouse' && getAvailBal(item.source.id, item.beginBal) > 0
     );
 
-    const primaryTdBal = primaryTdItems.reduce((acc, item) => acc + Math.max(0, item.beginBal), 0);
-    const spouseTdBal = spouseTdItems.reduce((acc, item) => acc + Math.max(0, item.beginBal), 0);
+    const primaryTdBal = primaryTdItems.reduce((acc, item) => acc + getAvailBal(item.source.id, item.beginBal), 0);
+    const spouseTdBal = spouseTdItems.reduce((acc, item) => acc + getAvailBal(item.source.id, item.beginBal), 0);
     const canBalanceTd = tdStrategyEnabled && hasSpouse && primaryTdBal > 0 && spouseTdBal > 0;
 
     // ACA Healthcare Subsidy Optimization Pre-Medicare Check
@@ -671,323 +705,322 @@ export function runSimulation(
     let acaNonAgiWdUsed = 0;
     let isPhase0AcaIncomeOverride = false;
 
-    if (acaEnabled && isAcaApplicable) {
-      // -------------------------------------------------------------
-      // ACA OPTIMIZED DRAWDOWN STRATEGY:
-      // Cap AGI-generating draws to maintain ACA subsidy qualification,
-      // bridging remaining cash flow needs using Non-AGI accounts (Cash & Roth).
-      // -------------------------------------------------------------
-      const unavoidableAgi = totalSalary + guarTaxable;
-      const totalIncomeWithWd = unavoidableAgi + baseWdTotal;
-      const remainingAgiHeadroom = Math.max(0, acaTargetLimitForYear - unavoidableAgi);
+    if (remNetNeeded > 0.01) {
+      if (acaEnabled && isAcaApplicable) {
+        // -------------------------------------------------------------
+        // ACA OPTIMIZED DRAWDOWN STRATEGY:
+        // Cap AGI-generating draws to maintain ACA subsidy qualification,
+        // bridging remaining net cash needs using Non-AGI accounts (Cash & Roth).
+        // -------------------------------------------------------------
+        const unavoidableAgi = totalSalary + guarTaxable + rmdTotal;
+        const preTaxGrossForRemNet = remNetNeeded / (1 - incRate);
+        const totalIncomeWithWd = unavoidableAgi + preTaxGrossForRemNet;
+        const remainingAgiHeadroom = Math.max(0, acaTargetLimitForYear - unavoidableAgi);
 
-      // Available liquid Non-AGI accounts (Cash & Roth)
-      const availableNonAgiBal = depletingAccessible
-        .filter(item => isSourceNonAgi(item.source) && item.beginBal > 0)
-        .reduce((sum, item) => sum + Math.max(0, item.beginBal), 0);
+        // Available liquid Non-AGI accounts (Cash & Roth, 0% tax -> $1 gross = $1 net)
+        const availableNonAgiBal = depletingAccessible
+          .filter(item => isSourceNonAgi(item.source))
+          .reduce((sum, item) => sum + getAvailBal(item.source.id, item.beginBal), 0);
 
-      const neededNonAgiBridge = Math.max(0, baseWdTotal - remainingAgiHeadroom);
+        const maxPreTaxNetInHeadroom = remainingAgiHeadroom * (1 - incRate);
+        const neededNonAgiBridge = Math.max(0, remNetNeeded - maxPreTaxNetInHeadroom);
 
-      // SPECIAL LOGIC FOR PHASE 0:
-      // When the ACA cap is increased (e.g. to >$100,000), partial-year salary alone may be below the cap,
-      // but the living expense withdrawn amount (totalIncomeWithWd = salary + baseWdTotal) exceeds the cap.
-      // Additionally, if the required Non-AGI cash/Roth bridge needed to stay under the limit exceeds total
-      // available Cash/Roth assets, attempting to cap pre-tax draws would inevitably fail in step 4 anyway.
-      // In these situations, draw from high-priority tax-deferred sources as income to fully fund living needs,
-      // shielding precious tax-free Cash/Roth reserves for subsequent pre-Medicare retirement years.
-      const isPhase0ExceededAca = phase === 0 && (
-        unavoidableAgi >= (acaTargetLimitForYear - 1.0) ||
-        totalIncomeWithWd >= (acaTargetLimitForYear - 1.0) ||
-        (neededNonAgiBridge > 0 && neededNonAgiBridge > availableNonAgiBal)
-      );
-
-      // 1. Draw from pre-tax AGI sources:
-      let allowablePreTaxDraw = 0;
-      if (isPhase0ExceededAca) {
-        allowablePreTaxDraw = baseWdTotal;
-        isPhase0AcaIncomeOverride = true;
-      } else {
-        allowablePreTaxDraw = Math.min(baseWdTotal, remainingAgiHeadroom);
-      }
-      let filledSoFar = 0;
-
-      const totalTdBal = primaryTdBal + spouseTdBal;
-      const tdToDraw = Math.min(allowablePreTaxDraw, totalTdBal);
-
-      if (tdToDraw > 0) {
-        if (canBalanceTd && primaryTdBal > 0 && spouseTdBal > 0) {
-          isSynchronizedTdActive = true;
-          let primTarget = 0;
-          let spTarget = 0;
-
-          if (tdStrategyMethod === 'equal') {
-            const half = tdToDraw / 2;
-            primTarget = Math.min(primaryTdBal, half);
-            spTarget = Math.min(spouseTdBal, half);
-            let rem = tdToDraw - (primTarget + spTarget);
-            if (rem > 0) {
-              if (primaryTdBal > primTarget) {
-                const add = Math.min(primaryTdBal - primTarget, rem);
-                primTarget += add;
-                rem -= add;
-              }
-              if (rem > 0 && spouseTdBal > spTarget) {
-                spTarget += Math.min(spouseTdBal - spTarget, rem);
-              }
-            }
-          } else {
-            primTarget = tdToDraw * (primaryTdBal / totalTdBal);
-            spTarget = tdToDraw * (spouseTdBal / totalTdBal);
-          }
-
-          let primRem = primTarget;
-          primaryTdItems.forEach(item => {
-            const avail = Math.max(0, item.beginBal);
-            const wd = Math.min(avail, primRem);
-            withdrawalsBySource[item.source.id] = wd;
-            primRem -= wd;
-            tdWithdrawalByOwner.primary += wd;
-          });
-
-          let spRem = spTarget;
-          spouseTdItems.forEach(item => {
-            const avail = Math.max(0, item.beginBal);
-            const wd = Math.min(avail, spRem);
-            withdrawalsBySource[item.source.id] = wd;
-            spRem -= wd;
-            tdWithdrawalByOwner.spouse += wd;
-          });
-        } else {
-          let remTd = tdToDraw;
-          const allTd = depletingAccessible.filter(i => i.isTaxDeferred && i.beginBal > 0);
-          allTd.forEach(item => {
-            const avail = Math.max(0, item.beginBal);
-            const wd = Math.min(avail, remTd);
-            withdrawalsBySource[item.source.id] = wd;
-            remTd -= wd;
-            if (item.owner === 'spouse') {
-              tdWithdrawalByOwner.spouse += wd;
-            } else {
-              tdWithdrawalByOwner.primary += wd;
-            }
-          });
-        }
-        filledSoFar += tdToDraw;
-        acaAgiConstrainedWd += tdToDraw;
-      }
-
-      // 2. Fill remaining cash need using Non-AGI sources (Cash and Roth generate 0 AGI)
-      const needNonAgi = Math.max(0, baseWdTotal - filledSoFar);
-      if (needNonAgi > 0) {
-        const nonAgiSources = depletingAccessible
-          .filter(item => isSourceNonAgi(item.source) && item.beginBal > 0)
-          .sort((a, b) => {
-            const aIsCash = isSourceCash(a.source);
-            const bIsCash = isSourceCash(b.source);
-            if (acaConfig?.prioritizeCashBeforeRoth !== false) {
-              if (aIsCash && !bIsCash) return -1;
-              if (!aIsCash && bIsCash) return 1;
-            } else {
-              const aIsRoth = isSourceRoth(a.source);
-              const bIsRoth = isSourceRoth(b.source);
-              if (aIsRoth && !bIsRoth) return -1;
-              if (!aIsRoth && bIsRoth) return 1;
-            }
-            return a.orderKey - b.orderKey;
-          });
-
-        let remNonAgi = needNonAgi;
-        nonAgiSources.forEach(item => {
-          const currentWd = withdrawalsBySource[item.source.id] || 0;
-          const avail = Math.max(0, item.beginBal - currentWd);
-          const wd = Math.min(avail, remNonAgi);
-          if (wd > 0) {
-            withdrawalsBySource[item.source.id] = currentWd + wd;
-            remNonAgi -= wd;
-            filledSoFar += wd;
-            acaNonAgiWdUsed += wd;
-          }
-        });
-      }
-
-      // 3. Fill from Brokerage / Capital gains accounts if still needed
-      const needBrokerage = Math.max(0, baseWdTotal - filledSoFar);
-      if (needBrokerage > 0) {
-        const brokerageSources = depletingAccessible.filter(
-          item => !item.isTaxDeferred && !isSourceNonAgi(item.source) && item.beginBal > 0
+        // SPECIAL LOGIC FOR PHASE 0:
+        // When partial-year salary + living draw exceeds the ACA cap or the required Non-AGI bridge
+        // exceeds available Cash/Roth reserves, draw pre-tax income to preserve tax-free reserves
+        // for full pre-Medicare retirement years.
+        const isPhase0ExceededAca = phase === 0 && (
+          unavoidableAgi >= (acaTargetLimitForYear - 1.0) ||
+          totalIncomeWithWd >= (acaTargetLimitForYear - 1.0) ||
+          (neededNonAgiBridge > 0 && neededNonAgiBridge > availableNonAgiBal)
         );
-        let remBrokerage = needBrokerage;
-        brokerageSources.forEach(item => {
-          const currentWd = withdrawalsBySource[item.source.id] || 0;
-          const avail = Math.max(0, item.beginBal - currentWd);
-          const wd = Math.min(avail, remBrokerage);
-          if (wd > 0) {
-            withdrawalsBySource[item.source.id] = currentWd + wd;
-            remBrokerage -= wd;
-            filledSoFar += wd;
-          }
-        });
-      }
 
-      // 4. Safety net: If living expenses are still unfunded, draw remainder from any available balances
-      const stillUnfunded = Math.max(0, baseWdTotal - filledSoFar);
-      if (stillUnfunded > 0) {
-        let remStill = stillUnfunded;
-        depletingAccessible.forEach(item => {
-          const currentWd = withdrawalsBySource[item.source.id] || 0;
-          const avail = Math.max(0, item.beginBal - currentWd);
-          if (avail > 0 && remStill > 0) {
-            const wd = Math.min(avail, remStill);
-            withdrawalsBySource[item.source.id] = currentWd + wd;
-            remStill -= wd;
-            filledSoFar += wd;
-            if (item.isTaxDeferred) {
-              if (item.owner === 'spouse') tdWithdrawalByOwner.spouse += wd;
-              else tdWithdrawalByOwner.primary += wd;
-            }
-          }
-        });
-      }
-    } else if (canBalanceTd) {
-      // Find the priority order bounds for the tax-deferred tier
-      const tdOrderKeys = [...primaryTdItems, ...spouseTdItems].map(i => i.orderKey);
-      const minTdOrderKey = Math.min(...tdOrderKeys);
-
-      let filledSoFar = 0;
-
-      // 1. Fill any accessible non-tax-deferred sources with priority ahead of the tax-deferred tier (e.g. Cash if priority 1)
-      depletingAccessible
-        .filter(item => !item.isTaxDeferred && item.orderKey < minTdOrderKey)
-        .forEach(item => {
-          const needed = Math.max(0, baseWdTotal - filledSoFar);
-          const wd = Math.min(Math.max(0, item.beginBal), needed);
-          withdrawalsBySource[item.source.id] = wd;
-          filledSoFar += wd;
-        });
-
-      // 2. Tax-deferred tier: Draw from both Primary and Spouse pre-tax accounts in tandem to reduce RMD exposure
-      const remainingForTd = Math.max(0, baseWdTotal - filledSoFar);
-      const totalTdBal = primaryTdBal + spouseTdBal;
-      const tdWithdrawalNeeded = Math.min(remainingForTd, totalTdBal);
-
-      if (tdWithdrawalNeeded > 0) {
-        isSynchronizedTdActive = true;
-        let primaryTarget = 0;
-        let spouseTarget = 0;
-
-        if (tdStrategyMethod === 'equal') {
-          const half = tdWithdrawalNeeded / 2;
-          primaryTarget = Math.min(primaryTdBal, half);
-          spouseTarget = Math.min(spouseTdBal, half);
-          let rem = tdWithdrawalNeeded - (primaryTarget + spouseTarget);
-          if (rem > 0) {
-            if (primaryTdBal > primaryTarget) {
-              const add = Math.min(primaryTdBal - primaryTarget, rem);
-              primaryTarget += add;
-              rem -= add;
-            }
-            if (rem > 0 && spouseTdBal > spouseTarget) {
-              spouseTarget += Math.min(spouseTdBal - spouseTarget, rem);
-            }
-          }
+        // 1. Draw from pre-tax AGI sources up to allowable headroom
+        let allowablePreTaxGross = 0;
+        if (isPhase0ExceededAca) {
+          allowablePreTaxGross = preTaxGrossForRemNet;
+          isPhase0AcaIncomeOverride = true;
         } else {
-          // 'proportional' (default: depletes accounts proportional to balance to reduce future RMDs)
-          primaryTarget = totalTdBal > 0 ? tdWithdrawalNeeded * (primaryTdBal / totalTdBal) : 0;
-          spouseTarget = totalTdBal > 0 ? tdWithdrawalNeeded * (spouseTdBal / totalTdBal) : 0;
+          allowablePreTaxGross = Math.min(preTaxGrossForRemNet, remainingAgiHeadroom);
         }
 
-        // Allocate primaryTarget across Primary's tax-deferred accounts in priority order
-        let primRem = primaryTarget;
-        primaryTdItems.forEach(item => {
-          const avail = Math.max(0, item.beginBal);
-          const wd = Math.min(avail, primRem);
-          withdrawalsBySource[item.source.id] = wd;
-          primRem -= wd;
-          tdWithdrawalByOwner.primary += wd;
-        });
+        const totalTdBal = primaryTdBal + spouseTdBal;
+        const tdToDraw = Math.min(allowablePreTaxGross, totalTdBal);
 
-        // Allocate spouseTarget across Spouse's tax-deferred accounts in priority order
-        let spRem = spouseTarget;
-        spouseTdItems.forEach(item => {
-          const avail = Math.max(0, item.beginBal);
-          const wd = Math.min(avail, spRem);
-          withdrawalsBySource[item.source.id] = wd;
-          spRem -= wd;
-          tdWithdrawalByOwner.spouse += wd;
-        });
+        if (tdToDraw > 0) {
+          if (canBalanceTd && primaryTdBal > 0 && spouseTdBal > 0) {
+            isSynchronizedTdActive = true;
+            let primTarget = 0;
+            let spTarget = 0;
 
-        filledSoFar += tdWithdrawalNeeded;
-      }
+            if (tdStrategyMethod === 'equal') {
+              const half = tdToDraw / 2;
+              primTarget = Math.min(primaryTdBal, half);
+              spTarget = Math.min(spouseTdBal, half);
+              let rem = tdToDraw - (primTarget + spTarget);
+              if (rem > 0) {
+                if (primaryTdBal > primTarget) {
+                  const add = Math.min(primaryTdBal - primTarget, rem);
+                  primTarget += add;
+                  rem -= add;
+                }
+                if (rem > 0 && spouseTdBal > spTarget) {
+                  spTarget += Math.min(spouseTdBal - spTarget, rem);
+                }
+              }
+            } else {
+              primTarget = tdToDraw * (primaryTdBal / totalTdBal);
+              spTarget = tdToDraw * (spouseTdBal / totalTdBal);
+            }
 
-      // 3. Fill any non-tax-deferred sources with priority after the tax-deferred tier (e.g. Brokerage, Roth)
-      depletingAccessible
-        .filter(item => !item.isTaxDeferred && item.orderKey >= minTdOrderKey)
-        .forEach(item => {
-          const needed = Math.max(0, baseWdTotal - filledSoFar);
-          const wd = Math.min(Math.max(0, item.beginBal), needed);
-          withdrawalsBySource[item.source.id] = wd;
-          filledSoFar += wd;
-        });
-    } else {
-      // Standard sequential priority waterfall
-      let cumulativePrev = 0;
-      depletingAccessible.forEach(item => {
-        const cumulativeCurr = cumulativePrev + Math.max(0, item.beginBal);
-        const fillCurr = Math.min(baseWdTotal, cumulativeCurr);
-        const fillPrev = Math.min(baseWdTotal, cumulativePrev);
-        const normalWd = Math.max(0, fillCurr - fillPrev);
-        withdrawalsBySource[item.source.id] = normalWd;
-        cumulativePrev = cumulativeCurr;
+            let primRem = primTarget;
+            primaryTdItems.forEach(item => {
+              const avail = getAvailBal(item.source.id, item.beginBal);
+              const wd = Math.min(avail, primRem);
+              if (wd > 0) {
+                withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+                primRem -= wd;
+                tdWithdrawalByOwner.primary += wd;
+              }
+            });
 
-        if (item.isTaxDeferred && normalWd > 0) {
-          if (item.owner === 'spouse') {
-            tdWithdrawalByOwner.spouse += normalWd;
+            let spRem = spTarget;
+            spouseTdItems.forEach(item => {
+              const avail = getAvailBal(item.source.id, item.beginBal);
+              const wd = Math.min(avail, spRem);
+              if (wd > 0) {
+                withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+                spRem -= wd;
+                tdWithdrawalByOwner.spouse += wd;
+              }
+            });
           } else {
-            tdWithdrawalByOwner.primary += normalWd;
+            let remTd = tdToDraw;
+            const allTd = depletingAccessible.filter(i => i.isTaxDeferred && getAvailBal(i.source.id, i.beginBal) > 0);
+            allTd.forEach(item => {
+              const avail = getAvailBal(item.source.id, item.beginBal);
+              const wd = Math.min(avail, remTd);
+              if (wd > 0) {
+                withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+                remTd -= wd;
+                if (item.owner === 'spouse') {
+                  tdWithdrawalByOwner.spouse += wd;
+                } else {
+                  tdWithdrawalByOwner.primary += wd;
+                }
+              }
+            });
+          }
+          remNetNeeded = Math.max(0, remNetNeeded - tdToDraw * (1 - incRate));
+          acaAgiConstrainedWd += tdToDraw;
+        }
+
+        // 2. Fill remaining net cash need using Non-AGI sources (Cash and Roth: 0% tax, 0 AGI)
+        if (remNetNeeded > 0.01) {
+          const nonAgiSources = depletingAccessible
+            .filter(item => isSourceNonAgi(item.source) && getAvailBal(item.source.id, item.beginBal) > 0)
+            .sort((a, b) => {
+              const aIsCash = isSourceCash(a.source);
+              const bIsCash = isSourceCash(b.source);
+              if (acaConfig?.prioritizeCashBeforeRoth !== false) {
+                if (aIsCash && !bIsCash) return -1;
+                if (!aIsCash && bIsCash) return 1;
+              } else {
+                const aIsRoth = isSourceRoth(a.source);
+                const bIsRoth = isSourceRoth(b.source);
+                if (aIsRoth && !bIsRoth) return -1;
+                if (!aIsRoth && bIsRoth) return 1;
+              }
+              return a.orderKey - b.orderKey;
+            });
+
+          nonAgiSources.forEach(item => {
+            if (remNetNeeded <= 0.01) return;
+            const avail = getAvailBal(item.source.id, item.beginBal);
+            const wd = Math.min(avail, remNetNeeded);
+            if (wd > 0) {
+              withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+              remNetNeeded = Math.max(0, remNetNeeded - wd);
+              acaNonAgiWdUsed += wd;
+            }
+          });
+        }
+
+        // 3. Fill from Brokerage / Capital gains accounts if still needed (grossed up for cap gains tax)
+        if (remNetNeeded > 0.01) {
+          const brokerageSources = depletingAccessible.filter(
+            item => !item.isTaxDeferred && !isSourceNonAgi(item.source) && getAvailBal(item.source.id, item.beginBal) > 0
+          );
+          brokerageSources.forEach(item => {
+            if (remNetNeeded <= 0.01) return;
+            const rate = getSourceMarginalTaxRate(item.source);
+            const avail = getAvailBal(item.source.id, item.beginBal);
+            const grossNeeded = remNetNeeded / (1 - rate);
+            const wd = Math.min(avail, grossNeeded);
+            if (wd > 0) {
+              withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+              remNetNeeded = Math.max(0, remNetNeeded - wd * (1 - rate));
+            }
+          });
+        }
+
+        // 4. Safety net: If living expenses are still unfunded, draw remainder from any available balances
+        if (remNetNeeded > 0.01) {
+          depletingAccessible.forEach(item => {
+            if (remNetNeeded <= 0.01) return;
+            const rate = getSourceMarginalTaxRate(item.source);
+            const avail = getAvailBal(item.source.id, item.beginBal);
+            if (avail > 0) {
+              const grossNeeded = remNetNeeded / (1 - rate);
+              const wd = Math.min(avail, grossNeeded);
+              withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+              remNetNeeded = Math.max(0, remNetNeeded - wd * (1 - rate));
+              if (item.isTaxDeferred) {
+                if (item.owner === 'spouse') tdWithdrawalByOwner.spouse += wd;
+                else tdWithdrawalByOwner.primary += wd;
+              }
+            }
+          });
+        }
+      } else if (canBalanceTd) {
+        // Find the priority order bounds for the tax-deferred tier
+        const tdOrderKeys = [...primaryTdItems, ...spouseTdItems].map(i => i.orderKey);
+        const minTdOrderKey = Math.min(...tdOrderKeys);
+
+        // 1. Fill any accessible non-tax-deferred sources with priority ahead of the tax-deferred tier
+        depletingAccessible
+          .filter(item => !item.isTaxDeferred && item.orderKey < minTdOrderKey)
+          .forEach(item => {
+            if (remNetNeeded <= 0.01) return;
+            const rate = getSourceMarginalTaxRate(item.source);
+            const avail = getAvailBal(item.source.id, item.beginBal);
+            const wd = Math.min(avail, remNetNeeded / (1 - rate));
+            if (wd > 0) {
+              withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+              remNetNeeded = Math.max(0, remNetNeeded - wd * (1 - rate));
+            }
+          });
+
+        // 2. Tax-deferred tier: Draw from both Primary and Spouse pre-tax accounts in tandem
+        if (remNetNeeded > 0.01) {
+          const tdGrossNeeded = remNetNeeded / (1 - incRate);
+          const totalTdBal = primaryTdBal + spouseTdBal;
+          const tdWithdrawalNeeded = Math.min(tdGrossNeeded, totalTdBal);
+
+          if (tdWithdrawalNeeded > 0) {
+            isSynchronizedTdActive = true;
+            let primaryTarget = 0;
+            let spouseTarget = 0;
+
+            if (tdStrategyMethod === 'equal') {
+              const half = tdWithdrawalNeeded / 2;
+              primaryTarget = Math.min(primaryTdBal, half);
+              spouseTarget = Math.min(spouseTdBal, half);
+              let rem = tdWithdrawalNeeded - (primaryTarget + spouseTarget);
+              if (rem > 0) {
+                if (primaryTdBal > primaryTarget) {
+                  const add = Math.min(primaryTdBal - primaryTarget, rem);
+                  primaryTarget += add;
+                  rem -= add;
+                }
+                if (rem > 0 && spouseTdBal > spouseTarget) {
+                  spouseTarget += Math.min(spouseTdBal - spouseTarget, rem);
+                }
+              }
+            } else {
+              primaryTarget = totalTdBal > 0 ? tdWithdrawalNeeded * (primaryTdBal / totalTdBal) : 0;
+              spouseTarget = totalTdBal > 0 ? tdWithdrawalNeeded * (spouseTdBal / totalTdBal) : 0;
+            }
+
+            let primRem = primaryTarget;
+            primaryTdItems.forEach(item => {
+              const avail = getAvailBal(item.source.id, item.beginBal);
+              const wd = Math.min(avail, primRem);
+              if (wd > 0) {
+                withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+                primRem -= wd;
+                tdWithdrawalByOwner.primary += wd;
+              }
+            });
+
+            let spRem = spouseTarget;
+            spouseTdItems.forEach(item => {
+              const avail = getAvailBal(item.source.id, item.beginBal);
+              const wd = Math.min(avail, spRem);
+              if (wd > 0) {
+                withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+                spRem -= wd;
+                tdWithdrawalByOwner.spouse += wd;
+              }
+            });
+
+            remNetNeeded = Math.max(0, remNetNeeded - tdWithdrawalNeeded * (1 - incRate));
           }
         }
-      });
+
+        // 3. Fill any non-tax-deferred sources with priority after the tax-deferred tier
+        depletingAccessible
+          .filter(item => !item.isTaxDeferred && item.orderKey >= minTdOrderKey)
+          .forEach(item => {
+            if (remNetNeeded <= 0.01) return;
+            const rate = getSourceMarginalTaxRate(item.source);
+            const avail = getAvailBal(item.source.id, item.beginBal);
+            const wd = Math.min(avail, remNetNeeded / (1 - rate));
+            if (wd > 0) {
+              withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + wd;
+              remNetNeeded = Math.max(0, remNetNeeded - wd * (1 - rate));
+            }
+          });
+      } else {
+        // Standard sequential priority waterfall with exact source-specific tax gross-up
+        depletingAccessible.forEach(item => {
+          if (remNetNeeded <= 0.01) return;
+          const rate = getSourceMarginalTaxRate(item.source);
+          const avail = getAvailBal(item.source.id, item.beginBal);
+          const normalWd = Math.min(avail, remNetNeeded / (1 - rate));
+          if (normalWd > 0) {
+            withdrawalsBySource[item.source.id] = (withdrawalsBySource[item.source.id] || 0) + normalWd;
+            remNetNeeded = Math.max(0, remNetNeeded - normalWd * (1 - rate));
+
+            if (item.isTaxDeferred) {
+              if (item.owner === 'spouse') {
+                tdWithdrawalByOwner.spouse += normalWd;
+              } else {
+                tdWithdrawalByOwner.primary += normalWd;
+              }
+            }
+          }
+        });
+      }
     }
 
-    // Check RMD mandate: Each pre-tax account MUST distribute AT LEAST its RMD amount
-    let rmdSurplusGross = 0;
-    let rmdSurplusReinvested = 0;
+    // Safe destination for taxable RMD surplus reinvestment (Brokerage or Cash ONLY — never Roth IRA or Pre-Tax)
+    const reinvestAcct =
+      sources.find(s => s.monthly === 'N' && (s.taxType === 'Capital Gain' || s.accountType === 'brokerage')) ||
+      sources.find(s => s.monthly === 'N' && isSourceCash(s)) ||
+      null;
 
-    depletingAccessible.forEach(item => {
-      const sId = item.source.id;
-      const acctRmd = rmdBySource[sId] || 0;
-      const normalWd = withdrawalsBySource[sId] || 0;
-
-      if (acctRmd > normalWd) {
-        // Enforce RMD minimum distribution
-        const excess = Math.min(item.beginBal, acctRmd) - normalWd;
-        if (excess > 0) {
-          withdrawalsBySource[sId] += excess;
-          rmdSurplusGross += excess;
-        }
-      }
-    });
-
-    // Reinvest RMD surplus (net of taxes) into Taxable Brokerage Account
-    if (rmdSurplusGross > 0) {
-      const surplusTax = rmdSurplusGross * (rates.fedBracket + rates.stateRate);
-      rmdSurplusReinvested = Math.max(0, rmdSurplusGross - surplusTax);
+    if (!reinvestAcct) {
+      rmdSurplusReinvested = 0;
     }
 
     // Systematic Roth Conversion logic (if enabled)
+    // IRS imposes no minimum age on Roth conversions, so all tax-deferred accounts with remaining balance qualify.
     let rothConvertedAmount = 0;
     let rothConversionTax = 0;
     const conversionDeductionsBySource: Record<string, number> = {};
     const rothConversionByOwner = { primary: 0, spouse: 0 };
 
     if (rothConfig?.enabled && age >= rothConfig.startAge && age <= rothConfig.endAge) {
-      // Calculate taxable income before conversion
+      // Calculate taxable income before conversion across ALL depleting sources (including RMDs)
       let currentTaxableLivingWd = 0;
-      depletingAccessible.forEach(item => {
-        const wd = withdrawalsBySource[item.source.id] || 0;
-        if (item.isTaxDeferred || item.source.taxType === 'Income') {
+      processedSources.forEach(s => {
+        if (s.isMonthly) return;
+        const wd = withdrawalsBySource[s.id] || 0;
+        if (wd <= 0) return;
+        if (s.isTaxDef || s.taxType === 'Income') {
           currentTaxableLivingWd += wd;
-        } else if (item.source.taxType === 'Capital Gain') {
+        } else if (s.taxType === 'Capital Gain' || s.source.accountType === 'brokerage') {
           currentTaxableLivingWd += wd * rates.capgainPct;
         }
       });
@@ -996,35 +1029,52 @@ export function runSimulation(
       const bracketRoom = Math.max(0, rothConfig.bracketRoomMaxIncome - baseTaxableIncome);
       const annualCap = rothConfig.annualCap > 0 ? rothConfig.annualCap : Infinity;
 
-      // Separate accessible pre-tax accounts by owner (Primary vs Spouse)
-      const primaryPreTaxItems = depletingAccessible.filter(
-        item => (item.isTaxDeferred || item.source.taxType === 'Income') && item.owner !== 'spouse'
-      );
-      const spousePreTaxItems = depletingAccessible.filter(
-        item => (item.isTaxDeferred || item.source.taxType === 'Income') && item.owner === 'spouse'
-      );
+      // All tax-deferred accounts sorted by priority (no withdrawal-age gate for Roth conversions)
+      const allPreTaxSources = processedSources
+        .filter(s => !s.isMonthly && s.isTaxDef)
+        .sort((a, b) => a.orderKey - b.orderKey);
+
+      const primaryPreTaxItems = allPreTaxSources.filter(s => s.owner !== 'spouse');
+      const spousePreTaxItems = hasSpouse ? allPreTaxSources.filter(s => s.owner === 'spouse') : [];
 
       const availPrimaryPreTax = primaryPreTaxItems.reduce(
-        (sum, item) => sum + Math.max(0, item.beginBal - (withdrawalsBySource[item.source.id] || 0)),
+        (sum, s) => sum + getAvailBal(s.id, beginBalanceBySource[s.id] || 0),
         0
       );
       const availSpousePreTax = spousePreTaxItems.reduce(
-        (sum, item) => sum + Math.max(0, item.beginBal - (withdrawalsBySource[item.source.id] || 0)),
+        (sum, s) => sum + getAvailBal(s.id, beginBalanceBySource[s.id] || 0),
         0
       );
       const availablePreTax = availPrimaryPreTax + availSpousePreTax;
 
+      const fedConvRate = rothConfig.targetBracketRate || rates.fedBracket;
+      const totalConvRate = Math.min(0.95, Math.max(0, fedConvRate + rates.stateRate));
+
       let maxAllowedByAca = Infinity;
       if (acaEnabled && isAcaApplicable) {
-        const currentTaxableBeforeConv = totalSalary + guarTaxable + currentTaxableLivingWd;
-        maxAllowedByAca = Math.max(0, acaTargetLimitForYear - currentTaxableBeforeConv);
+        const magiRoom = Math.max(0, acaTargetLimitForYear - baseTaxableIncome);
+        if (rothConfig.taxPaymentMethod === 'outsideBrokerage' && totalConvRate > 0) {
+          // During ACA years, Cash pays conversion tax first (0 MAGI); any spillover into Brokerage
+          // generates capital gains MAGI per dollar of conversion.
+          const availCashForTax = depletingAccessible
+            .filter(i => isSourceCash(i.source))
+            .reduce((sum, i) => sum + getAvailBal(i.source.id, i.beginBal), 0);
+          const maxConvCoveredByCash = availCashForTax / totalConvRate;
+          if (magiRoom <= maxConvCoveredByCash) {
+            maxAllowedByAca = magiRoom;
+          } else {
+            const remMagiAfterCash = magiRoom - maxConvCoveredByCash;
+            const brokMagiFactor = 1 + (totalConvRate / (1 - cgEffRate)) * rates.capgainPct;
+            maxAllowedByAca = maxConvCoveredByCash + remMagiAfterCash / brokMagiFactor;
+          }
+        } else {
+          maxAllowedByAca = magiRoom;
+        }
       }
 
       const maxConversion = Math.min(bracketRoom, annualCap, availablePreTax, maxAllowedByAca);
       if (maxConversion > 100) {
         rothConvertedAmount = maxConversion;
-        const fedConvRate = rothConfig.targetBracketRate || rates.fedBracket;
-        const totalConvRate = fedConvRate + rates.stateRate;
         rothConversionTax = maxConversion * totalConvRate;
 
         if (hasSpouse) {
@@ -1049,14 +1099,14 @@ export function runSimulation(
           }
 
           let primRem = primConvTarget;
-          primaryPreTaxItems.forEach(item => {
+          primaryPreTaxItems.forEach(s => {
             if (primRem > 0) {
-              const currentWd = withdrawalsBySource[item.source.id] || 0;
-              const availableInAcct = Math.max(0, item.beginBal - currentWd);
+              const currentWd = withdrawalsBySource[s.id] || 0;
+              const availableInAcct = Math.max(0, (beginBalanceBySource[s.id] || 0) - currentWd);
               const deduct = Math.min(availableInAcct, primRem);
               if (deduct > 0) {
-                withdrawalsBySource[item.source.id] = currentWd + deduct;
-                conversionDeductionsBySource[item.source.id] = deduct;
+                withdrawalsBySource[s.id] = currentWd + deduct;
+                conversionDeductionsBySource[s.id] = deduct;
                 rothConversionByOwner.primary += deduct;
                 primRem -= deduct;
               }
@@ -1064,14 +1114,14 @@ export function runSimulation(
           });
 
           let spRem = spConvTarget;
-          spousePreTaxItems.forEach(item => {
+          spousePreTaxItems.forEach(s => {
             if (spRem > 0) {
-              const currentWd = withdrawalsBySource[item.source.id] || 0;
-              const availableInAcct = Math.max(0, item.beginBal - currentWd);
+              const currentWd = withdrawalsBySource[s.id] || 0;
+              const availableInAcct = Math.max(0, (beginBalanceBySource[s.id] || 0) - currentWd);
               const deduct = Math.min(availableInAcct, spRem);
               if (deduct > 0) {
-                withdrawalsBySource[item.source.id] = currentWd + deduct;
-                conversionDeductionsBySource[item.source.id] = deduct;
+                withdrawalsBySource[s.id] = currentWd + deduct;
+                conversionDeductionsBySource[s.id] = deduct;
                 rothConversionByOwner.spouse += deduct;
                 spRem -= deduct;
               }
@@ -1080,14 +1130,14 @@ export function runSimulation(
         } else {
           // Single-Person Household: Deduct conversion amount from pre-tax accounts in priority order
           let convRemaining = maxConversion;
-          primaryPreTaxItems.forEach(item => {
+          primaryPreTaxItems.forEach(s => {
             if (convRemaining > 0) {
-              const currentWd = withdrawalsBySource[item.source.id] || 0;
-              const availableInAcct = Math.max(0, item.beginBal - currentWd);
+              const currentWd = withdrawalsBySource[s.id] || 0;
+              const availableInAcct = Math.max(0, (beginBalanceBySource[s.id] || 0) - currentWd);
               const deduct = Math.min(availableInAcct, convRemaining);
               if (deduct > 0) {
-                withdrawalsBySource[item.source.id] = currentWd + deduct;
-                conversionDeductionsBySource[item.source.id] = deduct;
+                withdrawalsBySource[s.id] = currentWd + deduct;
+                conversionDeductionsBySource[s.id] = deduct;
                 rothConversionByOwner.primary += deduct;
                 convRemaining -= deduct;
               }
@@ -1097,11 +1147,7 @@ export function runSimulation(
       }
     }
 
-    // Find destination accounts for redirected RMD surplus and owner-matched Roth conversion
-    const brokerageAcct = sources.find(s => s.monthly === 'N' && s.taxType === 'Capital Gain') ||
-      sources.find(s => s.monthly === 'N' && s.taxType !== 'Income') ||
-      sources.find(s => s.monthly === 'N');
-
+    // Find owner-matched destination Roth accounts
     const allRothCandidates = sources.filter(s => s.monthly === 'N' && isSourceRoth(s));
     const fallbackTaxFreeCandidates = sources.filter(
       s => s.monthly === 'N' && s.taxType === 'N/a' && !isSourceCash(s)
@@ -1136,35 +1182,37 @@ export function runSimulation(
         primaryRothAcct
       : undefined;
 
-    // Deduct conversion taxes from brokerage / cash when paid from outside accounts
+    // Deduct conversion taxes from accessible outside Brokerage / Cash accounts
+    // Brokerage liquidations are grossed up for capital gains tax and properly taxed/counted in MAGI.
     let rothTaxPaidOutside = 0;
     const taxPaidOutsideBySource: Record<string, number> = {};
     if (rothConvertedAmount > 0 && rothConfig?.taxPaymentMethod === 'outsideBrokerage') {
       let taxRemaining = rothConversionTax;
-      if (brokerageAcct) {
-        const curWd = withdrawalsBySource[brokerageAcct.id] || 0;
-        const avail = Math.max(0, (beginBalanceBySource[brokerageAcct.id] || 0) - curWd);
-        const drawTax = Math.min(avail, taxRemaining);
-        if (drawTax > 0) {
-          withdrawalsBySource[brokerageAcct.id] = curWd + drawTax;
-          taxPaidOutsideBySource[brokerageAcct.id] = drawTax;
-          taxRemaining -= drawTax;
-          rothTaxPaidOutside += drawTax;
-        }
-      }
-      if (taxRemaining > 0) {
-        const cashSources = depletingAccessible.filter(i => isSourceCash(i.source));
-        for (const c of cashSources) {
-          const curWd = withdrawalsBySource[c.source.id] || 0;
-          const avail = Math.max(0, c.beginBal - curWd);
-          const drawTax = Math.min(avail, taxRemaining);
-          if (drawTax > 0) {
-            withdrawalsBySource[c.source.id] = curWd + drawTax;
-            taxPaidOutsideBySource[c.source.id] = (taxPaidOutsideBySource[c.source.id] || 0) + drawTax;
-            taxRemaining -= drawTax;
-            rothTaxPaidOutside += drawTax;
-            if (taxRemaining <= 0) break;
-          }
+      const accessibleBrokerageSources = depletingAccessible.filter(
+        i => i.source.taxType === 'Capital Gain' || i.source.accountType === 'brokerage'
+      );
+      const accessibleCashSources = depletingAccessible.filter(i => isSourceCash(i.source));
+
+      // During ACA years, draw Cash first (0 MAGI impact), then Brokerage; otherwise Brokerage first, then Cash.
+      const outsideTaxSources = (acaEnabled && isAcaApplicable)
+        ? [...accessibleCashSources, ...accessibleBrokerageSources]
+        : [...accessibleBrokerageSources, ...accessibleCashSources];
+
+      for (const acct of outsideTaxSources) {
+        if (taxRemaining <= 0.01) break;
+        const curWd = withdrawalsBySource[acct.source.id] || 0;
+        const avail = Math.max(0, acct.beginBal - curWd);
+        if (avail <= 0) continue;
+
+        const isBrok = acct.source.taxType === 'Capital Gain' || acct.source.accountType === 'brokerage';
+        const effRate = isBrok ? cgEffRate : 0;
+        const drawGross = Math.min(avail, taxRemaining / (1 - effRate));
+        if (drawGross > 0) {
+          const netTaxCovered = drawGross * (1 - effRate);
+          withdrawalsBySource[acct.source.id] = curWd + drawGross;
+          taxPaidOutsideBySource[acct.source.id] = (taxPaidOutsideBySource[acct.source.id] || 0) + drawGross;
+          taxRemaining = Math.max(0, taxRemaining - netTaxCovered);
+          rothTaxPaidOutside += netTaxCovered;
         }
       }
     }
@@ -1198,7 +1246,6 @@ export function runSimulation(
 
     // Actual total withdrawals across all accounts
     let wdTotal = 0;
-    let livingWdTotal = 0;
     let ordinaryLivingWd = 0;
     let capGainLivingWd = 0;
     let taxFreeLivingWd = 0;
@@ -1207,15 +1254,16 @@ export function runSimulation(
       const totWd = withdrawalsBySource[s.id] || 0;
       const convDeduct = conversionDeductionsBySource[s.id] || 0;
       const outsideTaxDeduct = taxPaidOutsideBySource[s.id] || 0;
-      const livingWd = Math.max(0, totWd - convDeduct - outsideTaxDeduct);
+      const nonConvWd = Math.max(0, totWd - convDeduct);
+      const livingWd = Math.max(0, nonConvWd - outsideTaxDeduct);
 
       wdTotal += totWd;
-      livingWdTotal += livingWd;
 
       if (s.taxType === 'Income' || isTaxDeferredSource(s)) {
         ordinaryLivingWd += livingWd;
       } else if (s.taxType === 'Capital Gain' || s.accountType === 'brokerage') {
-        capGainLivingWd += livingWd;
+        // Include brokerage sales used to pay outside Roth conversion taxes in capital gains & MAGI
+        capGainLivingWd += nonConvWd;
       } else {
         taxFreeLivingWd += livingWd;
       }
@@ -1243,8 +1291,13 @@ export function runSimulation(
 
     if (isAcaApplicable) {
       const baseUnsubsidized = acaConfig?.unsubsidizedAnnualPremium ?? (expenses.expMedPremium * 12 > 0 ? expenses.expMedPremium * 12 : 21600);
-      const unsubsidizedAnnualPrem = baseUnsubsidized * cumMedicalInflation;
       const hSize = (acaConfig?.householdSize ?? (hasSpouse ? 2 : 1)) as 1 | 2;
+      // If only 1 of 2 spouses is pre-Medicare (other is already on Medicare), prorate ACA benchmark premium to 1 enrollee
+      const acaEnrolleeFrac =
+        hasSpouse && spouseAge !== undefined && hSize === 2 && (isPrimaryPreMedicare !== isSpousePreMedicare)
+          ? 0.5
+          : 1.0;
+      const unsubsidizedAnnualPrem = baseUnsubsidized * acaEnrolleeFrac * cumMedicalInflation;
       const acaMetrics = calculateAcaSubsidy({
         magi: acaMagi,
         householdSize: hSize,
@@ -1257,7 +1310,8 @@ export function runSimulation(
       acaSubsidySavings = acaMetrics.subsidyAmount;
     }
 
-    const acaDestAcct = (isAcaApplicable && acaQualified && acaSubsidySavings > 0)
+    // Only credit ACA subsidy savings into an account when ACA optimization is enabled
+    const acaDestAcct = (acaEnabled && isAcaApplicable && acaQualified && acaSubsidySavings > 0)
       ? resolveAcaCreditAccount(sources, acaConfig)
       : null;
     const acaCreditedAmount = acaDestAcct ? acaSubsidySavings : 0;
@@ -1275,8 +1329,8 @@ export function runSimulation(
       if (s.monthly === 'N') {
         let remaining = Math.max(0, beg - wd);
 
-        // Redirect RMD surplus into taxable brokerage account
-        if (brokerageAcct && s.id === brokerageAcct.id && rmdSurplusReinvested > 0) {
+        // Redirect RMD surplus into taxable brokerage/cash account (never Roth IRA)
+        if (reinvestAcct && s.id === reinvestAcct.id && rmdSurplusReinvested > 0) {
           remaining += rmdSurplusReinvested;
         }
 
@@ -1301,12 +1355,15 @@ export function runSimulation(
       incomeBySource[s.id] = wd + guar;
     });
 
-    // Check depleted status
+    // Check depleted status (aligned between row `depleted` flag and `fundsRunOutYear` within life horizon)
     const inLifeHorizon = age <= scenario.lifeExpAge || (hasSpouse && spouseAge !== undefined && spouseAge <= (scenario.spouseLifeExpAge || 92));
     const depleted = combEndBal <= 0 && inLifeHorizon;
-    if (combEndBal <= 0 && fundsRunOutYear === null) {
-      fundsRunOutYear = calYear;
+    if (combEndBal <= 0 && firstZeroYearIdx === null) {
+      firstZeroYearIdx = yr;
       yearsFundingLasts = yr;
+    }
+    if (depleted && fundsRunOutYear === null) {
+      fundsRunOutYear = calYear;
     }
 
     years.push({
