@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, RotateCcw, ShieldCheck, Calendar, DollarSign, BarChart3, Sliders, TableProperties, Sparkles, HeartPulse } from 'lucide-react';
+import { Download, RotateCcw, DollarSign, BarChart3, Sliders, TableProperties, Sparkles, HeartPulse } from 'lucide-react';
 import { PlannerConfig, PlanSummary } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -14,7 +14,6 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   config,
-  summary,
   activeTab,
   setActiveTab,
   onReset,

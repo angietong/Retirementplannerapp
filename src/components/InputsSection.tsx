@@ -150,7 +150,7 @@ export const InputsSection: React.FC<InputsSectionProps> = ({ config, onChange, 
       showBanner('Maximum 20 income sources supported.');
       return;
     }
-    const newPriority = config.sources.length + 1;
+    const newPriority = Math.max(0, ...config.sources.map(s => s.priority || 0)) + 1;
     const newSource: IncomeSource = {
       id: `src-${Date.now()}`,
       name: `New Account ${newPriority}`,

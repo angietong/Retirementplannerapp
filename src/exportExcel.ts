@@ -1,19 +1,31 @@
 import * as XLSX from 'xlsx';
-import { PlannerConfig, YearSimulationResult, PlanSummary } from './types';
+import { PlannerConfig, YearSimulationResult, PlanSummary, DollarDisplayMode } from './types';
+import { resolveAcaCreditAccount } from './engine';
 
 export function exportToExcel(
   config: PlannerConfig,
-  results: { years: YearSimulationResult[]; summary: PlanSummary }
+  results: { years: YearSimulationResult[]; summary: PlanSummary },
+  dollarMode: DollarDisplayMode = 'nominal'
 ) {
   const wb = XLSX.utils.book_new();
   const hasSpouse = Boolean(config.scenario?.hasSpouse);
   const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
   const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const dollarModeLabel = dollarMode === 'real' ? "Real (Today's $)" : 'Nominal (Future $)';
+
+  const getDeflator = (y: YearSimulationResult): number => {
+    if (dollarMode === 'nominal') return 1;
+    if (y.cumGeneralInflation && y.cumGeneralInflation > 0) return y.cumGeneralInflation;
+    return Math.pow(1 + config.rates.inflationRate, y.yr);
+  };
+
+  const resolvedAcaCredit = resolveAcaCreditAccount(config.sources, config.acaOptimization);
 
   // 1. Inputs Tab
   const inputRows: (string | number | boolean)[][] = [
     ['Retirement Financial Planner — Inputs'],
     ['User-editable parameters, assumptions, and household configuration'],
+    ['Export Valuation Mode', dollarModeLabel],
     [],
     ['Household Scenario Parameters'],
     ['Household Type', hasSpouse ? '2-Person Household (With Spouse)' : 'Single Person'],
@@ -38,22 +50,33 @@ export function exportToExcel(
     ['Taxable Income Share %', config.scenario.taxablePct],
     [],
     ['Milestone Ages'],
-    ['401(k) / 403(b) Access Age (Rule of 55)', config.milestones.four01kAge ?? config.milestones.retireAcctAge ?? 55],
-    ['IRA / Roth Access Age', config.milestones.iraAge ?? config.milestones.retireAcctAge ?? 60],
-    ['Social Security Earliest Age', config.milestones.ssMinAge],
+    ['Primary 401(k) / 403(b) Access Age (Rule of 55)', config.milestones.four01kAge ?? config.milestones.retireAcctAge ?? 55],
+    ['Primary IRA / Roth Access Age', config.milestones.iraAge ?? config.milestones.retireAcctAge ?? 60],
+    ['Primary Social Security Earliest Age', config.milestones.ssMinAge],
+    ...(hasSpouse
+      ? [
+          ['Spouse 401(k) / 403(b) Access Age', config.milestones.spouseFour01kAge ?? config.milestones.four01kAge ?? 55],
+          ['Spouse IRA / Roth Access Age', config.milestones.spouseIraAge ?? config.milestones.iraAge ?? 60],
+          ['Spouse Social Security Earliest Age', config.milestones.spouseSsMinAge ?? config.milestones.ssMinAge ?? 62],
+        ]
+      : []),
     ['Medicare Start Age', config.milestones.medicareAge],
     ['Required Minimum Distribution (RMD) Age', config.milestones.rmdAge],
     [],
-    ['Rate Assumptions'],
-    ['Annual Investment Rate of Return (%)', config.rates.investRate],
-    ['Annual General Inflation Rate (%)', config.rates.inflationRate],
-    ['Annual Medical Inflation Rate (%)', config.rates.medicalInflationRate ?? 0.045],
-    ['Federal Tax Bracket (%)', config.rates.fedBracket],
-    ['State Tax Rate (%)', config.rates.stateRate],
-    ['Capital Gain Tax Rate (%)', config.rates.capgainRate],
-    ['Capital Gain Share of Taxable (%)', config.rates.capgainPct],
+    ['Tax-Deferred Early Depletion Strategy'],
+    ['Synchronized Pre-Tax Drawdown Enabled?', config.taxDeferredStrategy?.enabled ?? true],
+    ['Drawdown Allocation Method', config.taxDeferredStrategy?.method ?? 'proportional'],
     [],
-    ['Monthly Expenses (Today\'s Base Dollars)'],
+    ['Rate Assumptions'],
+    ['Annual Investment Rate of Return', config.rates.investRate],
+    ['Annual General Inflation Rate', config.rates.inflationRate],
+    ['Annual Medical Inflation Rate', config.rates.medicalInflationRate ?? 0.045],
+    ['Federal Tax Bracket', config.rates.fedBracket],
+    ['State Tax Rate', config.rates.stateRate],
+    ['Capital Gain Tax Rate', config.rates.capgainRate],
+    ['Capital Gain Share of Taxable', config.rates.capgainPct],
+    [],
+    ["Monthly Expenses (Today's Base Dollars)"],
     ['Day-to-day Living Expense ($/mo)', config.expenses.expDaily],
     ['Pre-Medicare Medical Premium ($/mo)', config.expenses.expMedPremium],
     ['Pre-Medicare Medical OOP ($/mo)', config.expenses.expMedOop],
@@ -88,6 +111,9 @@ export function exportToExcel(
     ['Household Size', config.acaOptimization?.householdSize ?? (hasSpouse ? 2 : 1)],
     ['Unsubsidized Annual Premium ($)', config.acaOptimization?.unsubsidizedAnnualPremium ?? 21600],
     ['Bridge End Age (Medicare)', config.acaOptimization?.endAge ?? 65],
+    ['Prioritize Cash Before Roth?', config.acaOptimization?.prioritizeCashBeforeRoth ?? true],
+    ['Credit Subsidy Back to Account?', config.acaOptimization?.adjustMedicalExpensesWithSubsidy ?? true],
+    ['ACA Credit Destination Account', resolvedAcaCredit ? resolvedAcaCredit.name : 'Auto (None)'],
     [],
     ['Income & Asset Sources (Up to 20 — lower priority withdrawn first)'],
     ['Source Name', 'Account Category', 'Owner', 'Balance ($)', 'Priority', 'Monthly (Y/N)', 'Tax Type', 'Annual Payment ($)', 'Start Age', 'Notes']
@@ -110,6 +136,25 @@ export function exportToExcel(
 
   const wsInputs = XLSX.utils.aoa_to_sheet(inputRows);
   XLSX.utils.book_append_sheet(wb, wsInputs, 'Inputs');
+
+  // Compute summary metrics respecting active dollarMode
+  const lastYear = results.years[results.years.length - 1];
+  const finalBalanceDisplay = lastYear
+    ? Math.round(results.summary.finalBalance / getDeflator(lastYear))
+    : Math.round(results.summary.finalBalance);
+
+  const totalTaxesDisplay = Math.round(
+    results.years.reduce((sum, y) => sum + y.totalTax / getDeflator(y), 0)
+  );
+  const totalWithdrawalsDisplay = Math.round(
+    results.years.reduce((sum, y) => sum + y.wdTotal / getDeflator(y), 0)
+  );
+  const totalAcaSavedDisplay = Math.round(
+    results.years.reduce(
+      (sum, y) => sum + (y.acaQualified ? (y.acaSubsidySavings || 0) / getDeflator(y) : 0),
+      0
+    )
+  );
 
   // 2. Plan Tab
   const planHeaders: string[] = [
@@ -146,52 +191,54 @@ export function exportToExcel(
   const planRows: (string | number)[][] = [
     ['Retirement Financial Plan'],
     [`Household: ${config.scenario.userName}${hasSpouse ? ` & ${config.scenario.spouseName}` : ''}`],
+    [`Valuation Mode: ${dollarModeLabel}`],
     [],
     ['Key Results Summary'],
     ['Funds Run Out Year', results.summary.fundsRunOutYear ?? 'Not depleted within horizon'],
     ['Years Funding Lasts', results.summary.yearsFundingLasts],
-    ['Starting Combined Balance', results.summary.startingCombinedBalance],
-    ['Ending Combined Balance', results.summary.finalBalance],
-    ['Total Taxes Projected', results.summary.totalTaxesPaid],
-    ['Total Withdrawals Projected', results.summary.totalWithdrawals],
-    ['Total ACA Healthcare Subsidies Saved', results.summary.totalAcaSubsidiesSaved ?? 0],
+    ['Starting Combined Balance', Math.round(results.summary.startingCombinedBalance)],
+    ['Ending Combined Balance', finalBalanceDisplay],
+    ['Total Taxes Projected', totalTaxesDisplay],
+    ['Total Withdrawals Projected', totalWithdrawalsDisplay],
+    ['Total ACA Healthcare Subsidies Saved', totalAcaSavedDisplay],
     [],
     planHeaders
   ];
 
   results.years.forEach(y => {
+    const deflator = getDeflator(y);
     const row: (string | number)[] = [
       y.calYear,
       parseFloat(y.age.toFixed(1)),
       ...(hasSpouse ? [y.spouseAge !== undefined ? parseFloat(y.spouseAge.toFixed(1)) : '—'] : []),
       y.phase,
-      Math.round(y.salary),
-      Math.round(y.guarTotal),
-      Math.round(y.wdTotal),
-      Math.round(y.expenses),
-      Math.round(y.generalExpenses || 0),
-      Math.round(y.medicalExpenses || 0),
-      Math.round(y.majorExpenses || 0),
+      Math.round(y.salary / deflator),
+      Math.round(y.guarTotal / deflator),
+      Math.round(y.wdTotal / deflator),
+      Math.round(y.expenses / deflator),
+      Math.round((y.generalExpenses || 0) / deflator),
+      Math.round((y.medicalExpenses || 0) / deflator),
+      Math.round((y.majorExpenses || 0) / deflator),
       y.isMedicareActive ? 'YES' : 'NO',
-      Math.round(y.rmdTotal || 0),
+      Math.round((y.rmdTotal || 0) / deflator),
       y.rmdDivisor || 0,
-      Math.round(y.rmdSurplusReinvested || 0),
-      Math.round(y.rothConvertedAmount || 0),
+      Math.round((y.rmdSurplusReinvested || 0) / deflator),
+      Math.round((y.rothConvertedAmount || 0) / deflator),
       ...(hasSpouse
         ? [
-            Math.round(y.rothConversionByOwner?.primary || 0),
-            Math.round(y.rothConversionByOwner?.spouse || 0),
+            Math.round((y.rothConversionByOwner?.primary || 0) / deflator),
+            Math.round((y.rothConversionByOwner?.spouse || 0) / deflator),
           ]
         : []),
-      Math.round(y.rothConversionTax || 0),
-      Math.round(y.fedTax),
-      Math.round(y.stateTax),
-      Math.round(y.capGainTax),
-      Math.round(y.totalTax),
-      Math.round(y.combEndBal),
-      y.acaMagi !== undefined ? Math.round(y.acaMagi) : '',
-      y.acaTargetLimit !== undefined ? Math.round(y.acaTargetLimit) : '',
-      y.acaQualified && (y.acaSubsidySavings || 0) > 0 ? Math.round(y.acaSubsidySavings || 0) : 0,
+      Math.round((y.rothConversionTax || 0) / deflator),
+      Math.round(y.fedTax / deflator),
+      Math.round(y.stateTax / deflator),
+      Math.round(y.capGainTax / deflator),
+      Math.round(y.totalTax / deflator),
+      Math.round(y.combEndBal / deflator),
+      y.acaMagi !== undefined ? Math.round(y.acaMagi / deflator) : '',
+      y.acaTargetLimit !== undefined ? Math.round(y.acaTargetLimit / deflator) : '',
+      y.acaQualified && (y.acaSubsidySavings || 0) > 0 ? Math.round((y.acaSubsidySavings || 0) / deflator) : 0,
       y.acaQualified && (y.acaCreditedAmount || 0) > 0 ? (y.acaCreditAccountName || '') : '',
       y.depleted ? 'YES' : ''
     ];
@@ -220,19 +267,20 @@ export function exportToExcel(
   const chartDataRows: (string | number)[][] = [chartDataHeaders];
 
   results.years.forEach(y => {
+    const deflator = getDeflator(y);
     const row: (string | number)[] = [
       y.calYear,
-      ...config.sources.map(s => Math.round(y.incomeBySource[s.id] || 0)),
-      Math.round(y.generalExpenses || 0),
-      Math.round(y.medicalExpenses || 0),
-      Math.round(y.majorExpenses || 0),
-      Math.round(y.expenses),
-      Math.round(y.rmdTotal || 0),
-      Math.round(y.fedTax),
-      Math.round(y.stateTax),
-      Math.round(y.capGainTax),
-      Math.round(y.combEndBal),
-      ...config.sources.map(s => Math.round(y.endBalanceBySource[s.id] || 0))
+      ...config.sources.map(s => Math.round((y.incomeBySource[s.id] || 0) / deflator)),
+      Math.round((y.generalExpenses || 0) / deflator),
+      Math.round((y.medicalExpenses || 0) / deflator),
+      Math.round((y.majorExpenses || 0) / deflator),
+      Math.round(y.expenses / deflator),
+      Math.round((y.rmdTotal || 0) / deflator),
+      Math.round(y.fedTax / deflator),
+      Math.round(y.stateTax / deflator),
+      Math.round(y.capGainTax / deflator),
+      Math.round(y.combEndBal / deflator),
+      ...config.sources.map(s => Math.round((y.endBalanceBySource[s.id] || 0) / deflator))
     ];
     chartDataRows.push(row);
   });

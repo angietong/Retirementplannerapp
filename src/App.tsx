@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Zap, AlertTriangle, TrendingDown, Clock, ShieldAlert, Sparkles } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Zap, AlertTriangle } from 'lucide-react';
 import { DEFAULT_CONFIG, STRESS_PRESETS } from './defaultData';
 import { PlannerConfig, DollarDisplayMode, StressPreset } from './types';
 import { runSimulation } from './engine';
@@ -43,7 +43,7 @@ function loadSavedConfig(): PlannerConfig {
         ...DEFAULT_CONFIG.expenses,
         ...(parsed.expenses || {}),
       },
-      majorExpenses: Array.isArray(parsed.majorExpenses) && parsed.majorExpenses.length > 0
+      majorExpenses: Array.isArray(parsed.majorExpenses)
         ? parsed.majorExpenses
         : DEFAULT_CONFIG.majorExpenses,
       rothConversion: {
@@ -116,7 +116,7 @@ export function App() {
   };
 
   const handleExport = () => {
-    exportToExcel(config, simulationResults);
+    exportToExcel(config, simulationResults, dollarMode);
   };
 
   const currentPresetInfo = STRESS_PRESETS.find(p => p.id === activePreset) || STRESS_PRESETS[0];
@@ -125,8 +125,9 @@ export function App() {
   const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
   const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
 
-  const getDeflator = (yrIndex: number) => {
+  const getDeflator = (yrIndex: number, cumInflation?: number) => {
     if (dollarMode === 'nominal') return 1;
+    if (cumInflation && cumInflation > 0) return cumInflation;
     return Math.pow(1 + config.rates.inflationRate, yrIndex);
   };
 
@@ -225,6 +226,7 @@ export function App() {
               showAll={false}
               dollarMode={dollarMode}
               onDollarModeChange={setDollarMode}
+              stressPreset={activePreset}
             />
 
             {/* Quick table preview */}
@@ -308,7 +310,7 @@ export function App() {
                         )
                       : simulationResults.years
                     ).map(y => {
-                      const deflator = getDeflator(y.yr);
+                      const deflator = getDeflator(y.yr, y.cumGeneralInflation);
                       const guar = y.guarTotal / deflator;
                       const rmd = (y.rmdTotal || 0) / deflator;
                       const wd = y.wdTotal / deflator;
@@ -381,6 +383,7 @@ export function App() {
               showAll={true}
               dollarMode={dollarMode}
               onDollarModeChange={setDollarMode}
+              stressPreset={activePreset}
             />
           </div>
         )}

@@ -92,9 +92,10 @@ export function getAdjustedAmount(
 export function isTaxDeferredSource(s: { monthly: string; taxType: string; accountType?: string; name: string }): boolean {
   if (s.monthly === 'Y') return false;
   if (s.taxType === 'N/a' || s.taxType === 'Capital Gain') return false;
-  if (s.taxType === 'Income') return true;
   const type = s.accountType;
   if (type === '401k' || type === 'ira') return true;
+  if (type === 'cash' || type === 'brokerage' || type === 'roth' || type === 'other') return false;
+  if (s.taxType === 'Income') return true;
   const lower = s.name.toLowerCase();
   if (lower.includes('401k') || lower.includes('403b') || lower.includes('ira') || lower.includes('traditional')) {
     if (!lower.includes('roth')) return true;
@@ -281,8 +282,6 @@ export function runSimulation(
   const medicareAge = milestones.medicareAge ?? 65;
   const rmdAge = milestones.rmdAge ?? 73;
 
-  const spouseFour01kAge = milestones.spouseFour01kAge ?? four01kAge;
-  const spouseIraAge = milestones.spouseIraAge ?? iraAge;
   const spouseSsMinAge = milestones.spouseSsMinAge ?? ssMinAge;
 
   const parseLocalDate = (dateStr?: string): Date | null => {
@@ -396,41 +395,41 @@ export function runSimulation(
     const age = Math.round((retAge + yr) * 10) / 10;
     const spouseAge = hasSpouse ? Math.round((retSpouseAge + yr) * 10) / 10 : undefined;
 
-    // Determine return rate and general inflation rate under active stress preset
-    let effInvestRate = overrideInvestRates && overrideInvestRates[yr] !== undefined
-      ? overrideInvestRates[yr]
-      : rates.investRate;
+    // Determine return rate and inflation rates under active stress preset
+    let effInvestRate = rates.investRate;
     let effInflationRate = rates.inflationRate;
     let effMedicalInflationRate = rates.medicalInflationRate ?? 0.045; // Decoupled medical rate (default 4.5%)
 
-    if (!overrideInvestRates) {
-      if (stressPreset === 'crash2008') {
-        if (yr === 0) effInvestRate = -0.37;
-        else if (yr === 1) effInvestRate = -0.10;
-        else if (yr === 2) effInvestRate = 0.26;
-        else if (yr === 3) effInvestRate = 0.15;
-        else if (yr === 4) effInvestRate = 0.12;
-        else effInvestRate = rates.investRate;
-      } else if (stressPreset === 'stagflation') {
-        if (yr < 5) {
-          effInflationRate = 0.075;
-          effMedicalInflationRate = 0.095; // Healthcare inflation elevated during stagflation
-          effInvestRate = 0.020;
-        } else {
-          effInflationRate = 0.040;
-          effMedicalInflationRate = 0.060;
-          effInvestRate = 0.040;
-        }
-      } else if (stressPreset === 'earlyBear') {
-        if (yr === 0) effInvestRate = -0.12;
-        else if (yr === 1) effInvestRate = -0.15;
-        else if (yr === 2) effInvestRate = -0.08;
-        else effInvestRate = rates.investRate;
-      } else if (stressPreset === 'bull') {
-        effInvestRate = 0.085;
-        effInflationRate = 0.020;
-        effMedicalInflationRate = 0.038;
+    if (stressPreset === 'crash2008') {
+      if (yr === 0) effInvestRate = -0.37;
+      else if (yr === 1) effInvestRate = -0.10;
+      else if (yr === 2) effInvestRate = 0.26;
+      else if (yr === 3) effInvestRate = 0.15;
+      else if (yr === 4) effInvestRate = 0.12;
+      else effInvestRate = rates.investRate;
+    } else if (stressPreset === 'stagflation') {
+      if (yr < 5) {
+        effInflationRate = 0.075;
+        effMedicalInflationRate = 0.095; // Healthcare inflation elevated during stagflation
+        effInvestRate = 0.020;
+      } else {
+        effInflationRate = 0.040;
+        effMedicalInflationRate = 0.060;
+        effInvestRate = 0.040;
       }
+    } else if (stressPreset === 'earlyBear') {
+      if (yr === 0) effInvestRate = -0.12;
+      else if (yr === 1) effInvestRate = -0.15;
+      else if (yr === 2) effInvestRate = -0.08;
+      else effInvestRate = rates.investRate;
+    } else if (stressPreset === 'bull') {
+      effInvestRate = 0.085;
+      effInflationRate = 0.020;
+      effMedicalInflationRate = 0.038;
+    }
+
+    if (overrideInvestRates && overrideInvestRates[yr] !== undefined) {
+      effInvestRate = overrideInvestRates[yr];
     }
 
     if (yr > 0) {
@@ -1004,6 +1003,11 @@ export function runSimulation(
       rmdSurplusReinvested = 0;
     }
 
+    // Actual pre-tax balance remaining after living/RMD withdrawals, immediately prior to Roth conversion
+    const preTaxBalanceBeforeConv = processedSources
+      .filter(s => !s.isMonthly && s.isTaxDef)
+      .reduce((sum, s) => sum + getAvailBal(s.id, beginBalanceBySource[s.id] || 0), 0);
+
     // Systematic Roth Conversion logic (if enabled)
     // IRS imposes no minimum age on Roth conversions, so all tax-deferred accounts with remaining balance qualify.
     let rothConvertedAmount = 0;
@@ -1398,11 +1402,13 @@ export function runSimulation(
       effectiveReturnRate: effInvestRate,
       effectiveInflationRate: effInflationRate,
       effectiveMedicalInflationRate: effMedicalInflationRate,
+      cumGeneralInflation,
       rmdTotal,
       rmdDivisor,
       rmdSurplusGross,
       rmdSurplusReinvested,
       rmdBySource,
+      preTaxBalanceBeforeConv,
       rothConvertedAmount,
       rothConversionTax,
       rothConversionByOwner,
@@ -1510,6 +1516,7 @@ export function compareAcaOptimization(
         year: y.calYear,
         age: y.age,
         spouseAge: y.spouseAge,
+        cumGeneralInflation: y.cumGeneralInflation ?? 1,
         salaryAndGuaranteed: y.salary + y.guarTotal,
         baselineMagi: baseY.acaMagi ?? (baseY.salary + baseY.guarTaxable + baseY.taxTarget),
         acaMagi: y.acaMagi ?? (y.salary + y.guarTaxable + y.taxTarget),
@@ -1527,6 +1534,8 @@ export function compareAcaOptimization(
   return {
     baselineSummary: baseline.summary,
     acaSummary: withAca.summary,
+    baselineYears: baseline.years,
+    acaYears: withAca.years,
     totalSubsidiesSaved,
     preMedicareYearsSubsidized,
     totalPreMedicareYears,
@@ -1577,6 +1586,7 @@ export function compareRothConversion(
         year: y.calYear,
         age: y.age,
         spouseAge: y.spouseAge,
+        cumGeneralInflation: y.cumGeneralInflation ?? 1,
         bracketRoom,
         convertedAmount: convAmt,
         primaryConverted: y.rothConversionByOwner?.primary ?? convAmt,
@@ -1584,18 +1594,18 @@ export function compareRothConversion(
         primaryRothName: y.primaryRothAccountName,
         spouseRothName: y.spouseRothAccountName,
         conversionTax: convTax,
-        preTaxBalanceBefore: preTaxBal + convAmt,
+        preTaxBalanceBefore: y.preTaxBalanceBeforeConv ?? (preTaxBal + convAmt),
         preTaxBalanceAfter: preTaxBal,
         rothBalanceAfter: rothBal,
       };
     });
 
-  // Calculate RMD savings at age 73+
+  // Calculate RMD savings across ALL years where either Primary or Spouse has RMDs
   withRoth.years.forEach((y, idx) => {
-    if (y.age >= config.milestones.rmdAge) {
-      const baseY = baseline.years[idx];
-      const baseRmd = baseY?.rmdTotal ?? 0;
-      const rothRmd = y.rmdTotal ?? 0;
+    const baseY = baseline.years[idx];
+    const baseRmd = baseY?.rmdTotal ?? 0;
+    const rothRmd = y.rmdTotal ?? 0;
+    if (baseRmd > 0 || rothRmd > 0) {
       const rmdDiff = Math.max(0, baseRmd - rothRmd);
       const taxDiff = rmdDiff * (config.rates.fedBracket + config.rates.stateRate);
       rmdLifetimeSavings += taxDiff;
@@ -1608,6 +1618,8 @@ export function compareRothConversion(
   return {
     baselineSummary: baseline.summary,
     rothSummary: withRoth.summary,
+    baselineYears: baseline.years,
+    rothYears: withRoth.years,
     lifetimeTaxSavings,
     finalBalanceDifference,
     totalConverted,
@@ -1637,13 +1649,38 @@ export function runMonteCarloSimulation(
   const retYear = parseInt(retYearStr, 10) || 2030;
   const projYears = config.projectionYears;
 
+  // Baseline return curve under the active stress preset so Monte Carlo reflects stress regimes
+  const presetMeanReturn = (yr: number): number => {
+    if (stressPreset === 'crash2008') {
+      if (yr === 0) return -0.37;
+      if (yr === 1) return -0.10;
+      if (yr === 2) return 0.26;
+      if (yr === 3) return 0.15;
+      if (yr === 4) return 0.12;
+      return config.rates.investRate;
+    }
+    if (stressPreset === 'stagflation') {
+      return yr < 5 ? 0.020 : 0.040;
+    }
+    if (stressPreset === 'earlyBear') {
+      if (yr === 0) return -0.12;
+      if (yr === 1) return -0.15;
+      if (yr === 2) return -0.08;
+      return config.rates.investRate;
+    }
+    if (stressPreset === 'bull') {
+      return 0.085;
+    }
+    return config.rates.investRate;
+  };
+
   const allRunBalances: number[][] = Array.from({ length: projYears }, () => []);
   let successfulRuns = 0;
 
   for (let r = 0; r < runsCount; r++) {
     const customRates: number[] = [];
     for (let yr = 0; yr < projYears; yr++) {
-      const sampled = randNormal(config.rates.investRate, volatility);
+      const sampled = randNormal(presetMeanReturn(yr), volatility);
       customRates.push(sampled);
     }
 
@@ -1651,8 +1688,11 @@ export function runMonteCarloSimulation(
     let runSuccess = true;
 
     res.years.forEach((y, yr) => {
-      const deflator = dollarMode === 'real' ? Math.pow(1 + config.rates.inflationRate, yr) : 1;
-      const val = y.combEndBal / deflator;
+      const deflator =
+        dollarMode === 'real'
+          ? (y.cumGeneralInflation ?? Math.pow(1 + config.rates.inflationRate, yr))
+          : 1;
+      const val = y.combEndBal / (deflator > 0 ? deflator : 1);
       allRunBalances[yr].push(val);
       if (y.depleted) {
         runSuccess = false;

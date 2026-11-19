@@ -10,8 +10,6 @@ import {
   Calendar,
   Layers,
   HelpCircle,
-  ArrowRight,
-  Info,
   Sparkles,
 } from 'lucide-react';
 import {
@@ -98,13 +96,117 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
     });
   };
 
-  const getDeflator = (calYear: number) => {
+  const getRowDeflator = (cumInflation?: number, calYear?: number) => {
     if (dollarMode === 'nominal') return 1;
+    if (cumInflation && cumInflation > 0) return cumInflation;
     const [retYearStr] = (config.scenario?.retDate || '2030-07-01').split('-');
     const retYear = parseInt(retYearStr, 10) || 2030;
-    const yr = Math.max(0, calYear - retYear);
+    const yr = calYear !== undefined ? Math.max(0, calYear - retYear) : 0;
     return Math.pow(1 + config.rates.inflationRate, yr);
   };
+
+  // Real/Nominal adjusted KPI & comparison metrics using actual cumulative inflation
+  const displayMetrics = useMemo(() => {
+    if (dollarMode === 'nominal') {
+      const avgBaseMagi =
+        comparison.schedule.length > 0
+          ? comparison.schedule.reduce((acc, s) => acc + s.baselineMagi, 0) / comparison.schedule.length
+          : 0;
+      const avgAcaMagi =
+        comparison.schedule.length > 0
+          ? comparison.schedule.reduce((acc, s) => acc + s.acaMagi, 0) / comparison.schedule.length
+          : 0;
+      const avgLimit =
+        comparison.schedule.length > 0
+          ? comparison.schedule.reduce((acc, s) => acc + s.targetLimit, 0) / comparison.schedule.length
+          : acaConfig.targetMagilimit;
+      return {
+        totalSubsidiesSaved: comparison.totalSubsidiesSaved,
+        preTaxDrawsDeferredToNonAgi: comparison.preTaxDrawsDeferredToNonAgi,
+        finalBalanceDifference: comparison.finalBalanceDifference,
+        baselineSubsidiesSaved: comparison.baselineSummary.totalAcaSubsidiesSaved || 0,
+        baselineTotalTaxes: comparison.baselineSummary.totalTaxesPaid,
+        avgBaseMagi,
+        avgAcaMagi,
+        avgLimit,
+      };
+    }
+
+    const baseYears = comparison.baselineYears || [];
+    const acaYears = comparison.acaYears || [];
+    const defOf = (yr: number, cumInf?: number) => {
+      const d = cumInf ?? Math.pow(1 + config.rates.inflationRate, yr);
+      return d > 0 ? d : 1;
+    };
+
+    const totalSubsidiesSaved = comparison.schedule.reduce(
+      (sum, s) => sum + s.subsidySavings / getRowDeflator(s.cumGeneralInflation, s.year),
+      0
+    );
+
+    let preTaxDrawsDeferredToNonAgi = 0;
+    comparison.schedule.forEach(s => {
+      const baseY = baseYears.find(b => b.calYear === s.year);
+      const acaY = acaYears.find(a => a.calYear === s.year);
+      if (baseY && acaY) {
+        const baseTd = Object.entries(baseY.withdrawalsBySource || {})
+          .filter(([id]) => {
+            const src = config.sources.find(x => x.id === id);
+            return src && src.monthly === 'N' && (src.accountType === '401k' || src.accountType === 'ira' || (!src.accountType && src.taxType === 'Income'));
+          })
+          .reduce((acc, [, v]) => acc + v, 0);
+        const diff = Math.max(0, baseTd - s.preTaxWd);
+        preTaxDrawsDeferredToNonAgi += diff / getRowDeflator(s.cumGeneralInflation, s.year);
+      }
+    });
+
+    const lastBase = baseYears[baseYears.length - 1];
+    const lastAca = acaYears[acaYears.length - 1];
+    const finalDef = defOf(
+      lastAca?.yr ?? config.projectionYears - 1,
+      lastAca?.cumGeneralInflation ?? lastBase?.cumGeneralInflation
+    );
+    const finalBalanceDifference =
+      ((lastAca?.combEndBal ?? comparison.acaSummary.finalBalance) -
+        (lastBase?.combEndBal ?? comparison.baselineSummary.finalBalance)) /
+      finalDef;
+
+    const baselineSubsidiesSaved = baseYears.reduce(
+      (sum, y) => sum + (y.isAcaApplicable && y.acaSubsidySavings ? y.acaSubsidySavings / defOf(y.yr, y.cumGeneralInflation) : 0),
+      0
+    );
+    const baselineTotalTaxes = baseYears.reduce(
+      (sum, y) => sum + y.totalTax / defOf(y.yr, y.cumGeneralInflation),
+      0
+    );
+
+    const avgBaseMagi =
+      comparison.schedule.length > 0
+        ? comparison.schedule.reduce((acc, s) => acc + s.baselineMagi / getRowDeflator(s.cumGeneralInflation, s.year), 0) /
+          comparison.schedule.length
+        : 0;
+    const avgAcaMagi =
+      comparison.schedule.length > 0
+        ? comparison.schedule.reduce((acc, s) => acc + s.acaMagi / getRowDeflator(s.cumGeneralInflation, s.year), 0) /
+          comparison.schedule.length
+        : 0;
+    const avgLimit =
+      comparison.schedule.length > 0
+        ? comparison.schedule.reduce((acc, s) => acc + s.targetLimit / getRowDeflator(s.cumGeneralInflation, s.year), 0) /
+          comparison.schedule.length
+        : acaConfig.targetMagilimit;
+
+    return {
+      totalSubsidiesSaved,
+      preTaxDrawsDeferredToNonAgi,
+      finalBalanceDifference,
+      baselineSubsidiesSaved,
+      baselineTotalTaxes,
+      avgBaseMagi,
+      avgAcaMagi,
+      avgLimit,
+    };
+  }, [comparison, dollarMode, acaConfig.targetMagilimit, config.rates.inflationRate, config.projectionYears, config.sources]);
 
   const baseFplAmount = ACA_FPL_BASE[acaConfig.householdSize] || 21150;
 
@@ -112,12 +214,6 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
   const nonAgiTotalBalance = useMemo(() => {
     return config.sources
       .filter(s => s.monthly === 'N' && (s.taxType === 'N/a' || isSourceCash(s) || isSourceRoth(s)))
-      .reduce((sum, s) => sum + (s.balance || 0), 0);
-  }, [config.sources]);
-
-  const preTaxTotalBalance = useMemo(() => {
-    return config.sources
-      .filter(s => s.monthly === 'N' && s.taxType === 'Income')
       .reduce((sum, s) => sum + (s.balance || 0), 0);
   }, [config.sources]);
 
@@ -350,11 +446,11 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-extrabold text-emerald-600">
-              {formatCurrency(comparison.totalSubsidiesSaved)}
+              {formatCurrency(displayMetrics.totalSubsidiesSaved)}
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            Cumulative health insurance premium credits earned before age {acaConfig.endAge}.
+            Cumulative health insurance premium credits earned before age {acaConfig.endAge} ({dollarMode === 'real' ? "Today's $" : 'Nominal $'}).
           </p>
         </div>
 
@@ -395,7 +491,7 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-extrabold text-purple-700">
-              {formatCurrency(comparison.preTaxDrawsDeferredToNonAgi)}
+              {formatCurrency(displayMetrics.preTaxDrawsDeferredToNonAgi)}
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
@@ -416,15 +512,15 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
           <div className="mt-2 flex items-baseline gap-2">
             <span
               className={`text-2xl font-extrabold ${
-                comparison.finalBalanceDifference >= 0 ? 'text-emerald-600' : 'text-slate-800'
+                displayMetrics.finalBalanceDifference >= 0 ? 'text-emerald-600' : 'text-slate-800'
               }`}
             >
-              {comparison.finalBalanceDifference >= 0 ? '+' : ''}
-              {formatCurrency(comparison.finalBalanceDifference)}
+              {displayMetrics.finalBalanceDifference >= 0 ? '+' : ''}
+              {formatCurrency(displayMetrics.finalBalanceDifference)}
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            Difference in terminal net worth vs. drawing pre-tax without ACA constraints.
+            Difference in terminal net worth ({dollarMode === 'real' ? "Today's $" : 'Nominal $'}) vs. drawing pre-tax without ACA constraints.
           </p>
         </div>
       </div>
@@ -459,18 +555,10 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
               <div className="flex justify-between">
                 <span className="text-slate-500">Average Pre-Medicare AGI:</span>
                 {(() => {
-                  const avgBase =
-                    comparison.schedule.length > 0
-                      ? comparison.schedule.reduce((acc, s) => acc + s.baselineMagi, 0) / comparison.schedule.length
-                      : 0;
-                  const avgLimit =
-                    comparison.schedule.length > 0
-                      ? comparison.schedule.reduce((acc, s) => acc + s.targetLimit, 0) / comparison.schedule.length
-                      : acaConfig.targetMagilimit;
-                  const exceeds = avgBase > avgLimit;
+                  const exceeds = displayMetrics.avgBaseMagi > displayMetrics.avgLimit;
                   return (
                     <span className={`font-semibold ${exceeds ? 'text-red-600' : 'text-slate-800'}`}>
-                      {formatCurrency(avgBase)}/yr ({exceeds ? 'Exceeds Cap' : 'Under Cap'})
+                      {formatCurrency(displayMetrics.avgBaseMagi)}/yr ({exceeds ? 'Exceeds Cap' : 'Under Cap'})
                     </span>
                   );
                 })()}
@@ -478,15 +566,15 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
               <div className="flex justify-between">
                 <span className="text-slate-500">Pre-Medicare Health Subsidies Received:</span>
                 <span className="font-bold text-slate-800">
-                  {comparison.baselineSummary.totalAcaSubsidiesSaved && comparison.baselineSummary.totalAcaSubsidiesSaved > 0
-                    ? formatCurrency(comparison.baselineSummary.totalAcaSubsidiesSaved)
+                  {displayMetrics.baselineSubsidiesSaved > 0
+                    ? formatCurrency(displayMetrics.baselineSubsidiesSaved)
                     : '$0 (100% Out-of-Pocket)'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Total Lifetime Taxes Paid:</span>
                 <span className="font-semibold text-slate-800">
-                  {formatCurrency(comparison.baselineSummary.totalTaxesPaid)}
+                  {formatCurrency(displayMetrics.baselineTotalTaxes)}
                 </span>
               </div>
             </div>
@@ -513,18 +601,10 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
               <div className="flex justify-between">
                 <span className="text-slate-500">Average Pre-Medicare AGI:</span>
                 {(() => {
-                  const avgAca =
-                    comparison.schedule.length > 0
-                      ? comparison.schedule.reduce((acc, s) => acc + s.acaMagi, 0) / comparison.schedule.length
-                      : 0;
-                  const avgLimit =
-                    comparison.schedule.length > 0
-                      ? comparison.schedule.reduce((acc, s) => acc + s.targetLimit, 0) / comparison.schedule.length
-                      : acaConfig.targetMagilimit;
-                  const isUnder = avgAca <= avgLimit;
+                  const isUnder = displayMetrics.avgAcaMagi <= displayMetrics.avgLimit;
                   return (
                     <span className={`font-semibold ${isUnder ? 'text-emerald-700' : 'text-amber-800'}`}>
-                      {formatCurrency(avgAca)}/yr ({isUnder ? 'Under Cap' : 'Over Cap'})
+                      {formatCurrency(displayMetrics.avgAcaMagi)}/yr ({isUnder ? 'Under Cap' : 'Over Cap'})
                     </span>
                   );
                 })()}
@@ -532,14 +612,14 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
               <div className="flex justify-between">
                 <span className="text-slate-500">Total Pre-Medicare Subsidies Saved:</span>
                 <span className="font-extrabold text-emerald-600">
-                  +{formatCurrency(comparison.totalSubsidiesSaved)}
+                  +{formatCurrency(displayMetrics.totalSubsidiesSaved)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Terminal Portfolio Difference:</span>
                 <span className="font-bold text-emerald-700">
-                  {comparison.finalBalanceDifference >= 0 ? '+' : ''}
-                  {formatCurrency(comparison.finalBalanceDifference)}
+                  {displayMetrics.finalBalanceDifference >= 0 ? '+' : ''}
+                  {formatCurrency(displayMetrics.finalBalanceDifference)}
                 </span>
               </div>
             </div>
@@ -589,7 +669,7 @@ export const AcaSubsidySimulator: React.FC<AcaSubsidySimulatorProps> = ({
                 </tr>
               ) : (
                 comparison.schedule.map(s => {
-                  const deflator = getDeflator(s.year);
+                  const deflator = getRowDeflator(s.cumGeneralInflation, s.year);
                   const guarAdj = s.salaryAndGuaranteed / deflator;
                   const preTaxAdj = s.preTaxWd / deflator;
                   const nonAgiAdj = s.nonAgiWd / deflator;

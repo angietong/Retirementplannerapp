@@ -2,6 +2,7 @@ import React from 'react';
 import { Plus, Trash2, Sparkles, Car, Home, Plane, Heart, Info } from 'lucide-react';
 import { PlannerConfig, MajorExpense } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
+import { NumericInput } from '../NumericInput';
 
 interface MajorExpensesTabProps {
   config: PlannerConfig;
@@ -120,22 +121,24 @@ export const MajorExpensesTab: React.FC<MajorExpensesTabProps> = ({
                   <td className="py-2 px-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <span className="text-slate-400 text-[11px]">Age</span>
-                      <input
-                        type="number"
-                        min="50"
-                        max="110"
+                      <NumericInput
+                        min={50}
+                        max={110}
+                        integer
+                        fallbackValue={65}
                         value={exp.age}
-                        onChange={e => onUpdateMajorExpense(exp.id, { age: parseFloat(e.target.value) || 65 })}
+                        onChange={val => onUpdateMajorExpense(exp.id, { age: val })}
                         className="w-16 text-center font-semibold text-slate-900 border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-amber-500"
                       />
                     </div>
                   </td>
                   <td className="py-2 px-3 text-right">
-                    <input
-                      type="number"
-                      step="1000"
+                    <NumericInput
+                      step={1000}
+                      min={0}
+                      fallbackValue={0}
                       value={exp.amount}
-                      onChange={e => onUpdateMajorExpense(exp.id, { amount: parseFloat(e.target.value) || 0 })}
+                      onChange={val => onUpdateMajorExpense(exp.id, { amount: val })}
                       className="w-28 text-right font-mono font-semibold text-slate-900 border border-slate-300 rounded px-2.5 py-1.5 text-xs focus:outline-amber-500"
                     />
                   </td>

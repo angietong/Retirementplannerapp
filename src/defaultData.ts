@@ -1,6 +1,5 @@
 import {
   PlannerConfig,
-  StressPreset,
   StressPresetConfig,
   RothConversionConfig,
   TaxDeferredWithdrawalStrategy,

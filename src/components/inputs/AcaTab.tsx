@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, HeartPulse, Sliders, Info, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, HeartPulse, Info } from 'lucide-react';
 import { PlannerConfig, AcaOptimizationConfig, AcaFplPreset } from '../../types';
 import { ACA_FPL_BASE, getAcaFplLimit } from '../../defaultData';
 import { isSourceCash, resolveAcaCreditAccount } from '../../engine';

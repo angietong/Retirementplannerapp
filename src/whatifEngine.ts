@@ -177,7 +177,12 @@ export function runWhatIfComparisons(
         testSim.summary.fundsRunOutYear === null ||
         (baselineSim.summary.fundsRunOutYear !== null && testSim.summary.fundsRunOutYear >= baselineSim.summary.fundsRunOutYear);
 
-      if (isSolvent && testPeak <= bestRmdPeak) {
+      const isBetterPeak = testPeak < bestRmdPeak - 1;
+      const isTiedPeakWithBetterBalance =
+        Math.abs(testPeak - bestRmdPeak) <= 1 &&
+        testSim.summary.finalBalance > bestRmdSim.summary.finalBalance;
+
+      if (isSolvent && (isBetterPeak || isTiedPeakWithBetterBalance)) {
         bestRmdPeak = testPeak;
         bestRmdSim = testSim;
         const rmdCut = baselinePeakRmd - testPeak;

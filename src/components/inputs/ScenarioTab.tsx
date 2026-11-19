@@ -1,6 +1,7 @@
 import React from 'react';
 import { Users, User, Heart } from 'lucide-react';
 import { PlannerConfig, ScenarioParams, MilestoneAges } from '../../types';
+import { NumericInput } from '../NumericInput';
 
 interface ScenarioTabProps {
   config: PlannerConfig;
@@ -96,19 +97,23 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 Retirement Salary ($)
               </label>
-              <input
-                type="number"
+              <NumericInput
+                min={0}
+                fallbackValue={0}
                 value={config.scenario.retSalary}
-                onChange={e => onUpdateScenario('retSalary', parseFloat(e.target.value) || 0)}
+                onChange={val => onUpdateScenario('retSalary', val)}
                 className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Life Expectancy Age</label>
-              <input
-                type="number"
+              <NumericInput
+                min={50}
+                max={120}
+                integer
+                fallbackValue={90}
                 value={config.scenario.lifeExpAge}
-                onChange={e => onUpdateScenario('lifeExpAge', parseFloat(e.target.value) || 0)}
+                onChange={val => onUpdateScenario('lifeExpAge', val)}
                 className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
               />
             </div>
@@ -118,17 +123,18 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
             <label className="block text-xs font-medium text-slate-700 mb-1">
               Taxable Income % (Withdrawal Share)
             </label>
-            <input
-              type="number"
-              step="0.05"
-              min="0"
-              max="1"
+            <NumericInput
+              step={5}
+              min={0}
+              max={100}
+              displayScale={100}
+              fallbackValue={0.7}
               value={config.scenario.taxablePct}
-              onChange={e => onUpdateScenario('taxablePct', parseFloat(e.target.value) || 0)}
+              onChange={val => onUpdateScenario('taxablePct', val)}
               className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
             />
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Portion of asset withdrawals subject to ordinary income vs capital gains / tax-free.
+              Portion of asset withdrawals subject to ordinary income vs capital gains / tax-free (e.g. 70 for 70%).
             </p>
           </div>
         </div>
@@ -180,19 +186,23 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Spouse Salary ($)
                 </label>
-                <input
-                  type="number"
+                <NumericInput
+                  min={0}
+                  fallbackValue={0}
                   value={config.scenario.spouseRetSalary || 0}
-                  onChange={e => onUpdateScenario('spouseRetSalary', parseFloat(e.target.value) || 0)}
+                  onChange={val => onUpdateScenario('spouseRetSalary', val)}
                   className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500 bg-white"
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Spouse Life Expectancy</label>
-                <input
-                  type="number"
+                <NumericInput
+                  min={50}
+                  max={120}
+                  integer
+                  fallbackValue={92}
                   value={config.scenario.spouseLifeExpAge || 92}
-                  onChange={e => onUpdateScenario('spouseLifeExpAge', parseFloat(e.target.value) || 0)}
+                  onChange={val => onUpdateScenario('spouseLifeExpAge', val)}
                   className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500 bg-white"
                 />
               </div>
@@ -235,11 +245,13 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 401(k) / 403(b) Access Age (Rule of 55)
               </label>
-              <input
-                type="number"
-                step="0.5"
+              <NumericInput
+                step={0.5}
+                min={30}
+                max={90}
+                fallbackValue={55}
                 value={config.milestones.four01kAge ?? config.milestones.retireAcctAge ?? 55}
-                onChange={e => onUpdateMilestone('four01kAge', parseFloat(e.target.value) || 55)}
+                onChange={val => onUpdateMilestone('four01kAge', val)}
                 className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
               />
               <p className="text-[10px] text-slate-500 mt-0.5">Employer plan early withdrawal</p>
@@ -249,11 +261,13 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 IRA / Roth Access Age
               </label>
-              <input
-                type="number"
-                step="0.5"
+              <NumericInput
+                step={0.5}
+                min={30}
+                max={90}
+                fallbackValue={60}
                 value={config.milestones.iraAge ?? config.milestones.retireAcctAge ?? 60}
-                onChange={e => onUpdateMilestone('iraAge', parseFloat(e.target.value) || 60)}
+                onChange={val => onUpdateMilestone('iraAge', val)}
                 className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
               />
               <p className="text-[10px] text-slate-500 mt-0.5">IRS penalty-free age (e.g. 59.5)</p>
@@ -263,10 +277,12 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 Social Security Earliest Age
               </label>
-              <input
-                type="number"
+              <NumericInput
+                min={50}
+                max={75}
+                fallbackValue={62}
                 value={config.milestones.ssMinAge}
-                onChange={e => onUpdateMilestone('ssMinAge', parseFloat(e.target.value) || 62)}
+                onChange={val => onUpdateMilestone('ssMinAge', val)}
                 className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
               />
               <p className="text-[10px] text-slate-500 mt-0.5">Earliest claim age (e.g. 62)</p>
@@ -285,11 +301,13 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Spouse 401(k) / 403(b) Access Age
                 </label>
-                <input
-                  type="number"
-                  step="0.5"
+                <NumericInput
+                  step={0.5}
+                  min={30}
+                  max={90}
+                  fallbackValue={55}
                   value={config.milestones.spouseFour01kAge ?? config.milestones.four01kAge ?? 55}
-                  onChange={e => onUpdateMilestone('spouseFour01kAge', parseFloat(e.target.value) || 55)}
+                  onChange={val => onUpdateMilestone('spouseFour01kAge', val)}
                   className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
                 />
                 <p className="text-[10px] text-slate-500 mt-0.5">Employer plan early withdrawal</p>
@@ -299,11 +317,13 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Spouse IRA / Roth Access Age
                 </label>
-                <input
-                  type="number"
-                  step="0.5"
+                <NumericInput
+                  step={0.5}
+                  min={30}
+                  max={90}
+                  fallbackValue={60}
                   value={config.milestones.spouseIraAge ?? config.milestones.iraAge ?? 60}
-                  onChange={e => onUpdateMilestone('spouseIraAge', parseFloat(e.target.value) || 60)}
+                  onChange={val => onUpdateMilestone('spouseIraAge', val)}
                   className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
                 />
                 <p className="text-[10px] text-slate-500 mt-0.5">IRS penalty-free age (e.g. 59.5)</p>
@@ -313,10 +333,12 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Spouse Social Security Earliest Age
                 </label>
-                <input
-                  type="number"
+                <NumericInput
+                  min={50}
+                  max={75}
+                  fallbackValue={62}
                   value={config.milestones.spouseSsMinAge ?? config.milestones.ssMinAge ?? 62}
-                  onChange={e => onUpdateMilestone('spouseSsMinAge', parseFloat(e.target.value) || 62)}
+                  onChange={val => onUpdateMilestone('spouseSsMinAge', val)}
                   className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
                 />
                 <p className="text-[10px] text-slate-500 mt-0.5">Earliest claim age (e.g. 62)</p>
@@ -335,10 +357,12 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 Medicare Start Age
               </label>
-              <input
-                type="number"
+              <NumericInput
+                min={50}
+                max={80}
+                fallbackValue={65}
                 value={config.milestones.medicareAge}
-                onChange={e => onUpdateMilestone('medicareAge', parseFloat(e.target.value) || 65)}
+                onChange={val => onUpdateMilestone('medicareAge', val)}
                 className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
               />
               <p className="text-[10px] text-slate-500 mt-0.5">Standard: Age 65</p>
@@ -348,10 +372,12 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1">
                 Required Minimum Dist. (RMD) Age
               </label>
-              <input
-                type="number"
+              <NumericInput
+                min={65}
+                max={85}
+                fallbackValue={73}
                 value={config.milestones.rmdAge}
-                onChange={e => onUpdateMilestone('rmdAge', parseFloat(e.target.value) || 73)}
+                onChange={val => onUpdateMilestone('rmdAge', val)}
                 className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
               />
               <p className="text-[10px] text-slate-500 mt-0.5">SECURE 2.0: Age 73</p>

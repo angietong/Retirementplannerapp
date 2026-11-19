@@ -3,29 +3,15 @@ import {
   Sparkles,
   TrendingUp,
   ShieldCheck,
-  DollarSign,
-  ArrowRight,
   Info,
   CheckCircle2,
   Calendar,
   Layers,
-  ArrowDownRight,
 } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  CartesianGrid,
-} from 'recharts';
 import { PlannerConfig, RothConversionConfig, StressPreset, DollarDisplayMode } from '../types';
 import { compareRothConversion, isTaxDeferredSource } from '../engine';
 import { formatCurrency } from '../utils/formatters';
+import { NumericInput } from './NumericInput';
 
 interface RothConversionSimulatorProps {
   config: PlannerConfig;
@@ -77,9 +63,82 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
   const hasPreTaxAccounts = config.sources.some(
     s => s.monthly === 'N' && isTaxDeferredSource(s) && s.balance > 0
   );
-  const totalPreTaxBalance = config.sources
-    .filter(s => s.monthly === 'N' && isTaxDeferredSource(s))
-    .reduce((sum, s) => sum + (s.balance || 0), 0);
+
+  // Real/Nominal adjusted KPI totals using actual cumulative inflation per year
+  const displayMetrics = useMemo(() => {
+    if (dollarMode === 'nominal') {
+      return {
+        lifetimeTaxSavings: comparison.lifetimeTaxSavings,
+        finalBalanceDifference: comparison.finalBalanceDifference,
+        rmdLifetimeSavings: comparison.rmdLifetimeSavings,
+        peakRmdReduction: comparison.peakRmdReduction,
+        totalConverted: comparison.totalConverted,
+        totalConversionTaxesPaid: comparison.totalConversionTaxesPaid,
+      };
+    }
+
+    const baseYears = comparison.baselineYears || [];
+    const rothYears = comparison.rothYears || [];
+    const getYearDeflator = (yrIdx: number, cumInf?: number) => {
+      const f = cumInf ?? Math.pow(1 + config.rates.inflationRate, yrIdx);
+      return f > 0 ? f : 1;
+    };
+
+    const baseRealTax = baseYears.reduce(
+      (sum, y) => sum + y.totalTax / getYearDeflator(y.yr, y.cumGeneralInflation),
+      0
+    );
+    const rothRealTax = rothYears.reduce(
+      (sum, y) => sum + y.totalTax / getYearDeflator(y.yr, y.cumGeneralInflation),
+      0
+    );
+
+    const lastBase = baseYears[baseYears.length - 1];
+    const lastRoth = rothYears[rothYears.length - 1];
+    const finalDeflator = getYearDeflator(
+      lastRoth?.yr ?? config.projectionYears - 1,
+      lastRoth?.cumGeneralInflation ?? lastBase?.cumGeneralInflation
+    );
+    const finalBalanceDifference =
+      ((lastRoth?.combEndBal ?? comparison.rothSummary.finalBalance) -
+        (lastBase?.combEndBal ?? comparison.baselineSummary.finalBalance)) /
+      finalDeflator;
+
+    let rmdLifetimeSavings = 0;
+    let peakRmdReduction = 0;
+    const taxRate = config.rates.fedBracket + config.rates.stateRate;
+    rothYears.forEach((y, idx) => {
+      const baseY = baseYears[idx];
+      const baseRmd = baseY?.rmdTotal ?? 0;
+      const rothRmd = y.rmdTotal ?? 0;
+      if (baseRmd > 0 || rothRmd > 0) {
+        const def = getYearDeflator(y.yr, y.cumGeneralInflation);
+        const rmdDiffReal = Math.max(0, baseRmd - rothRmd) / def;
+        rmdLifetimeSavings += rmdDiffReal * taxRate;
+        if (rmdDiffReal > peakRmdReduction) {
+          peakRmdReduction = rmdDiffReal;
+        }
+      }
+    });
+
+    const totalConverted = comparison.conversionSchedule.reduce(
+      (sum, r) => sum + r.convertedAmount / (r.cumGeneralInflation && r.cumGeneralInflation > 0 ? r.cumGeneralInflation : 1),
+      0
+    );
+    const totalConversionTaxesPaid = comparison.conversionSchedule.reduce(
+      (sum, r) => sum + r.conversionTax / (r.cumGeneralInflation && r.cumGeneralInflation > 0 ? r.cumGeneralInflation : 1),
+      0
+    );
+
+    return {
+      lifetimeTaxSavings: baseRealTax - rothRealTax,
+      finalBalanceDifference,
+      rmdLifetimeSavings,
+      peakRmdReduction,
+      totalConverted,
+      totalConversionTaxesPaid,
+    };
+  }, [comparison, dollarMode, config.rates.inflationRate, config.rates.fedBracket, config.rates.stateRate, config.projectionYears]);
 
   const primaryRothAcct =
     config.sources.find(
@@ -202,22 +261,24 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
               Conversion Window (Ages)
             </label>
             <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min="50"
-                max="80"
+              <NumericInput
+                integer
+                min={30}
+                max={85}
                 value={currentRothConfig.startAge}
-                onChange={e => updateRothConfig({ startAge: parseInt(e.target.value, 10) || 60 })}
+                fallbackValue={60}
+                onChange={val => updateRothConfig({ startAge: val })}
                 className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-900 focus:outline-purple-500"
                 title="Start Age (typically retirement age)"
               />
               <span className="text-slate-400">to</span>
-              <input
-                type="number"
-                min="55"
-                max="85"
+              <NumericInput
+                integer
+                min={35}
+                max={95}
                 value={currentRothConfig.endAge}
-                onChange={e => updateRothConfig({ endAge: parseInt(e.target.value, 10) || (config.milestones.rmdAge - 1) })}
+                fallbackValue={config.milestones.rmdAge - 1}
+                onChange={val => updateRothConfig({ endAge: val })}
                 className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-900 focus:outline-purple-500"
                 title={`End Age (e.g. ${config.milestones.rmdAge - 1}, year before RMD age ${config.milestones.rmdAge})`}
               />
@@ -332,14 +393,14 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
           <div>
             <div
               className={`text-2xl font-bold ${
-                comparison.lifetimeTaxSavings >= 0 ? 'text-emerald-700' : 'text-slate-900'
+                displayMetrics.lifetimeTaxSavings >= 0 ? 'text-emerald-700' : 'text-slate-900'
               }`}
             >
-              {comparison.lifetimeTaxSavings >= 0 ? '+' : ''}
-              {formatCurrency(comparison.lifetimeTaxSavings)}
+              {displayMetrics.lifetimeTaxSavings >= 0 ? '+' : ''}
+              {formatCurrency(displayMetrics.lifetimeTaxSavings)}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Total lifetime federal & state income taxes avoided
+              Total lifetime federal & state income taxes avoided ({dollarMode === 'real' ? "Today's $" : 'Nominal $'})
             </p>
           </div>
         </div>
@@ -357,14 +418,14 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
           <div>
             <div
               className={`text-2xl font-bold ${
-                comparison.finalBalanceDifference >= 0 ? 'text-emerald-700' : 'text-slate-900'
+                displayMetrics.finalBalanceDifference >= 0 ? 'text-emerald-700' : 'text-slate-900'
               }`}
             >
-              {comparison.finalBalanceDifference >= 0 ? '+' : ''}
-              {formatCurrency(comparison.finalBalanceDifference)}
+              {displayMetrics.finalBalanceDifference >= 0 ? '+' : ''}
+              {formatCurrency(displayMetrics.finalBalanceDifference)}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Final horizon portfolio surplus with strategy
+              Final horizon portfolio surplus ({dollarMode === 'real' ? "Today's $" : 'Nominal $'})
             </p>
           </div>
         </div>
@@ -381,10 +442,10 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
           </div>
           <div>
             <div className="text-2xl font-bold text-slate-900">
-              {formatCurrency(comparison.rmdLifetimeSavings)}
+              {formatCurrency(displayMetrics.rmdLifetimeSavings)}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Peak RMD reduction: {formatCurrency(comparison.peakRmdReduction)}/yr
+              Peak RMD reduction: {formatCurrency(displayMetrics.peakRmdReduction)}/yr
             </p>
           </div>
         </div>
@@ -399,10 +460,10 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
           </div>
           <div>
             <div className="text-2xl font-bold text-slate-900">
-              {formatCurrency(comparison.totalConverted)}
+              {formatCurrency(displayMetrics.totalConverted)}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Conversion taxes: {formatCurrency(comparison.totalConversionTaxesPaid)}
+              Conversion taxes: {formatCurrency(displayMetrics.totalConversionTaxesPaid)}
             </p>
           </div>
         </div>
@@ -410,7 +471,7 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
 
       {/* Interactive Systematic Conversion Schedule Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+        <div className="p-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between flex-wrap gap-2">
           <div>
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Calendar className="w-4 h-4 text-purple-600" />
@@ -418,7 +479,7 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
               {currentRothConfig.endAge})
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Yearly amounts converted up to the top of the bracket ceiling, paying predictable taxes today to shield future growth.
+              Yearly amounts converted up to the top of the bracket ceiling ({dollarMode === 'real' ? "Real Today's $" : 'Nominal Future $'}).
             </p>
           </div>
           <span className="text-xs font-semibold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-md border border-purple-200">
@@ -454,53 +515,59 @@ export const RothConversionSimulator: React.FC<RothConversionSimulatorProps> = (
                   </td>
                 </tr>
               ) : (
-                comparison.conversionSchedule.map(row => (
-                  <tr key={row.year} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-2.5 px-3 font-semibold text-slate-900">{row.year}</td>
-                    <td className="py-2.5 px-3 text-slate-700">
-                      Age {row.age}
-                      {row.spouseAge ? ` / Sp. ${row.spouseAge}` : ''}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-600">
-                      {formatCurrency(row.bracketRoom)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-purple-700">
-                      {formatCurrency(row.convertedAmount)}
-                    </td>
-                    {hasSpouse && (
-                      <>
-                        <td className="py-2.5 px-3 text-right text-blue-700 font-medium">
-                          <div>{formatCurrency(row.primaryConverted ?? 0)}</div>
-                          {row.primaryRothName && (row.primaryConverted ?? 0) > 0 && (
-                            <div className="text-[10px] font-sans text-slate-500">
-                              &rarr; {row.primaryRothName}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-purple-700 font-medium">
-                          <div>{formatCurrency(row.spouseConverted ?? 0)}</div>
-                          {row.spouseRothName && (row.spouseConverted ?? 0) > 0 && (
-                            <div className="text-[10px] font-sans text-slate-500">
-                              &rarr; {row.spouseRothName}
-                            </div>
-                          )}
-                        </td>
-                      </>
-                    )}
-                    <td className="py-2.5 px-3 text-right text-rose-600 font-medium">
-                      {formatCurrency(row.conversionTax)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-500">
-                      {formatCurrency(row.preTaxBalanceBefore)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-800 font-medium">
-                      {formatCurrency(row.preTaxBalanceAfter)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-emerald-700 font-bold">
-                      {formatCurrency(row.rothBalanceAfter)}
-                    </td>
-                  </tr>
-                ))
+                comparison.conversionSchedule.map(row => {
+                  const deflator =
+                    dollarMode === 'real' && row.cumGeneralInflation && row.cumGeneralInflation > 0
+                      ? row.cumGeneralInflation
+                      : 1;
+                  return (
+                    <tr key={row.year} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-2.5 px-3 font-semibold text-slate-900">{row.year}</td>
+                      <td className="py-2.5 px-3 text-slate-700">
+                        Age {row.age}
+                        {row.spouseAge ? ` / Sp. ${row.spouseAge}` : ''}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-600">
+                        {formatCurrency(row.bracketRoom / deflator)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-bold text-purple-700">
+                        {formatCurrency(row.convertedAmount / deflator)}
+                      </td>
+                      {hasSpouse && (
+                        <>
+                          <td className="py-2.5 px-3 text-right text-blue-700 font-medium">
+                            <div>{formatCurrency((row.primaryConverted ?? 0) / deflator)}</div>
+                            {row.primaryRothName && (row.primaryConverted ?? 0) > 0 && (
+                              <div className="text-[10px] font-sans text-slate-500">
+                                &rarr; {row.primaryRothName}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-purple-700 font-medium">
+                            <div>{formatCurrency((row.spouseConverted ?? 0) / deflator)}</div>
+                            {row.spouseRothName && (row.spouseConverted ?? 0) > 0 && (
+                              <div className="text-[10px] font-sans text-slate-500">
+                                &rarr; {row.spouseRothName}
+                              </div>
+                            )}
+                          </td>
+                        </>
+                      )}
+                      <td className="py-2.5 px-3 text-right text-rose-600 font-medium">
+                        {formatCurrency(row.conversionTax / deflator)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-500">
+                        {formatCurrency(row.preTaxBalanceBefore / deflator)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-800 font-medium">
+                        {formatCurrency(row.preTaxBalanceAfter / deflator)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-emerald-700 font-bold">
+                        {formatCurrency(row.rothBalanceAfter / deflator)}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

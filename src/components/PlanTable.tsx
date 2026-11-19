@@ -28,8 +28,9 @@ export const PlanTable: React.FC<PlanTableProps> = ({
     setExpandedYear(expandedYear === yr ? null : yr);
   };
 
-  const getDeflator = (yrIndex: number) => {
+  const getDeflator = (yrIndex: number, cumInflation?: number) => {
     if (dollarMode === 'nominal') return 1;
+    if (cumInflation && cumInflation > 0) return cumInflation;
     return Math.pow(1 + config.rates.inflationRate, yrIndex);
   };
 
@@ -122,7 +123,7 @@ export const PlanTable: React.FC<PlanTableProps> = ({
           <tbody className="divide-y divide-slate-100 font-mono">
             {filteredYears.map(y => {
               const isExpanded = expandedYear === y.yr;
-              const deflator = getDeflator(y.yr);
+              const deflator = getDeflator(y.yr, y.cumGeneralInflation);
 
               const salaryAdj = y.salary / deflator;
               const guarAdj = y.guarTotal / deflator;

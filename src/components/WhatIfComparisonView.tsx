@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Sliders, Sparkles, TrendingUp, ShieldCheck, DollarSign, Award, CheckCircle2 } from 'lucide-react';
-import { PlannerConfig, StressPreset, DollarDisplayMode } from '../types';
+import { Sparkles, ShieldCheck, Award, CheckCircle2 } from 'lucide-react';
+import { PlannerConfig, StressPreset, DollarDisplayMode, YearSimulationResult } from '../types';
 import { runWhatIfComparisons, WhatIfScenarioResult } from '../whatifEngine';
 
 interface WhatIfComparisonViewProps {
   config: PlannerConfig;
   stressPreset: StressPreset;
   dollarMode: DollarDisplayMode;
-  getDeflator: (yr: number) => number;
+  getDeflator: (yr: number, cumInflation?: number) => number;
 }
 
 export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
@@ -25,24 +25,32 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
   const selectedScenario = scenarios.find(s => s.id === selectedScenarioId) || scenarios[1];
   const baselineScenario = scenarios[0];
 
+  const getYearDeflator = (y: YearSimulationResult) =>
+    dollarMode === 'nominal' ? 1 : getDeflator(y.yr, y.cumGeneralInflation);
+
   const getRealTaxes = (scen: WhatIfScenarioResult) => {
     if (dollarMode === 'nominal') return scen.totalTaxesPaid;
-    return scen.years.reduce((sum, y) => sum + y.totalTax / getDeflator(y.yr), 0);
+    return scen.years.reduce((sum, y) => sum + y.totalTax / getYearDeflator(y), 0);
   };
 
-  const getRealFinalBalance = (bal: number) => {
-    if (dollarMode === 'nominal') return bal;
-    return bal / getDeflator(config.projectionYears - 1);
+  const getRealPeakRmd = (scen: WhatIfScenarioResult) => {
+    if (dollarMode === 'nominal') return scen.peakRmd;
+    return Math.max(0, ...scen.years.map(y => (y.rmdTotal || 0) / getYearDeflator(y)));
   };
 
-  const formatCurrency = (val: number, yrIndex?: number) => {
-    const deflator = yrIndex !== undefined ? getDeflator(yrIndex) : 1;
-    const adjusted = val / deflator;
+  const getRealFinalBalance = (scen: WhatIfScenarioResult) => {
+    if (dollarMode === 'nominal') return scen.finalBalance;
+    const lastYear = scen.years[scen.years.length - 1];
+    const deflator = lastYear ? getYearDeflator(lastYear) : getDeflator(config.projectionYears - 1);
+    return scen.finalBalance / deflator;
+  };
+
+  const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       maximumFractionDigits: 0
-    }).format(adjusted);
+    }).format(val);
   };
 
   return (
@@ -54,7 +62,7 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
           <h2 className="text-lg font-bold">What-If Scenario Optimization Engine</h2>
         </div>
         <p className="text-emerald-100 text-xs sm:text-sm max-w-3xl leading-relaxed">
-          Compare how intelligent withdrawal sequencing and automated tax conversion strategies impact your retirement outcomes across four distinct financial goals. Select a strategy to inspect optimized cash flows, lifetime tax savings, and estate net worth.
+          Compare how intelligent withdrawal sequencing and automated tax conversion strategies impact your retirement outcomes across five distinct financial goals. Select a strategy to inspect optimized cash flows, lifetime tax savings, and estate net worth.
         </p>
       </div>
 
@@ -65,9 +73,7 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
           const scenTax = getRealTaxes(scen);
           const baseTax = getRealTaxes(baselineScenario);
           const taxDiff = scenTax - baseTax;
-          const scenEstate = getRealFinalBalance(scen.finalBalance);
-          const baseEstate = getRealFinalBalance(baselineScenario.finalBalance);
-          const estateDiff = scenEstate - baseEstate;
+          const scenEstate = getRealFinalBalance(scen);
 
           return (
             <div
@@ -142,21 +148,21 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
             <span className="text-xs font-semibold text-slate-500 block mb-1">Peak Annual RMD</span>
             <div className="text-lg font-extrabold text-slate-900 mb-1">
-              {formatCurrency(selectedScenario.peakRmd)}
+              {formatCurrency(getRealPeakRmd(selectedScenario))}
             </div>
-            <div className={`text-[11px] font-medium ${selectedScenario.peakRmd <= baselineScenario.peakRmd ? 'text-emerald-700' : 'text-slate-600'}`}>
-              {selectedScenario.peakRmd <= baselineScenario.peakRmd ? '▼ Lower RMD burden' : 'Standard RMD profile'}
+            <div className={`text-[11px] font-medium ${getRealPeakRmd(selectedScenario) <= getRealPeakRmd(baselineScenario) ? 'text-emerald-700' : 'text-slate-600'}`}>
+              {getRealPeakRmd(selectedScenario) <= getRealPeakRmd(baselineScenario) ? '▼ Lower RMD burden' : 'Standard RMD profile'}
             </div>
           </div>
 
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
             <span className="text-xs font-semibold text-slate-500 block mb-1">Final Estate Net Worth</span>
             <div className="text-lg font-extrabold text-slate-900 mb-1">
-              {formatCurrency(getRealFinalBalance(selectedScenario.finalBalance))}
+              {formatCurrency(getRealFinalBalance(selectedScenario))}
             </div>
             <div className={`text-[11px] font-medium ${selectedScenario.finalBalance >= baselineScenario.finalBalance ? 'text-emerald-700' : 'text-slate-600'}`}>
               {selectedScenario.finalBalance >= baselineScenario.finalBalance ? '▲ ' : '▼ '}
-              {formatCurrency(Math.abs(getRealFinalBalance(selectedScenario.finalBalance) - getRealFinalBalance(baselineScenario.finalBalance)))} vs Baseline
+              {formatCurrency(Math.abs(getRealFinalBalance(selectedScenario) - getRealFinalBalance(baselineScenario)))} vs Baseline
             </div>
           </div>
 
@@ -175,9 +181,10 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
         <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-xs text-emerald-900 leading-relaxed space-y-2">
           <div className="font-bold flex items-center gap-1.5 text-emerald-950">
             <ShieldCheck className="w-4 h-4 text-emerald-700" />
-            Automated System Optimization Rules Applied for "{selectedScenario.name}":
+            Automated System Optimization Rules Applied for &quot;{selectedScenario.name}&quot;:
           </div>
           <p>
+            {selectedScenario.id === 'acaSubsidy' && `The simulation capped pre-Medicare taxable AGI below your ACA target threshold (inflated annually) and bridged remaining cash flow using Non-AGI Cash and Roth reserves to maximize Affordable Care Act Premium Tax Credits prior to Medicare at age ${config.milestones.medicareAge}.`}
             {selectedScenario.id === 'minTax' && 'The simulation automatically sequenced accounts to exhaust taxable cash and brokerage before tax-deferred accounts, while executing pre-RMD Roth conversions to equalize tax brackets and avoid higher future marginal tax rates.'}
             {selectedScenario.id === 'minRmd' && `The simulation prioritized traditional pre-tax 401(k) / IRA withdrawals prior to mandatory RMD age (${config.milestones.rmdAge}) and executed targeted pre-RMD Roth conversions to aggressively shrink pre-tax balances, minimizing future RMD spikes.`}
             {selectedScenario.id === 'maxSpending' && 'The system iteratively evaluated lifestyle expense ceilings, identifying that your portfolio can safely sustain a higher annual expenditure without compromising long-term solvency.'}

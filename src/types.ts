@@ -161,6 +161,7 @@ export interface YearSimulationResult {
   effectiveReturnRate?: number;
   effectiveInflationRate?: number;
   effectiveMedicalInflationRate?: number;
+  cumGeneralInflation?: number;
   // RMD calculations & surplus redirection
   rmdTotal?: number;
   rmdDivisor?: number;
@@ -168,6 +169,7 @@ export interface YearSimulationResult {
   rmdSurplusReinvested?: number;
   rmdBySource?: Record<string, number>;
   // Roth conversion tracking
+  preTaxBalanceBeforeConv?: number;
   rothConvertedAmount?: number;
   rothConversionTax?: number;
   rothConversionByOwner?: { primary: number; spouse: number };
@@ -201,6 +203,8 @@ export interface YearSimulationResult {
 export interface AcaComparisonResult {
   baselineSummary: PlanSummary;
   acaSummary: PlanSummary;
+  baselineYears?: YearSimulationResult[];
+  acaYears?: YearSimulationResult[];
   totalSubsidiesSaved: number;
   preMedicareYearsSubsidized: number;
   totalPreMedicareYears: number;
@@ -210,6 +214,7 @@ export interface AcaComparisonResult {
     year: number;
     age: number;
     spouseAge?: number;
+    cumGeneralInflation?: number;
     salaryAndGuaranteed: number;
     baselineMagi: number;
     acaMagi: number;
@@ -227,6 +232,8 @@ export interface AcaComparisonResult {
 export interface RothComparisonResult {
   baselineSummary: PlanSummary;
   rothSummary: PlanSummary;
+  baselineYears?: YearSimulationResult[];
+  rothYears?: YearSimulationResult[];
   lifetimeTaxSavings: number;
   finalBalanceDifference: number;
   totalConverted: number;
@@ -237,6 +244,7 @@ export interface RothComparisonResult {
     year: number;
     age: number;
     spouseAge?: number;
+    cumGeneralInflation?: number;
     bracketRoom: number;
     convertedAmount: number;
     primaryConverted?: number;

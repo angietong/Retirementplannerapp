@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldAlert, ShieldCheck, Clock, Wallet, ReceiptText, Users, DollarSign } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, Clock, Wallet, ReceiptText, Users } from 'lucide-react';
 import { PlanSummary, PlannerConfig, DollarDisplayMode, YearSimulationResult } from '../types';
 import { formatCurrency } from '../utils/formatters';
 
@@ -26,7 +26,10 @@ export const KeyResultsCards: React.FC<KeyResultsCardsProps> = ({
   const realTotalTaxesPaid = React.useMemo(() => {
     if (!years || years.length === 0) return summary.totalTaxesPaid;
     return years.reduce((sum, y) => {
-      const deflator = Math.pow(1 + config.rates.inflationRate, y.yr);
+      const deflator =
+        y.cumGeneralInflation && y.cumGeneralInflation > 0
+          ? y.cumGeneralInflation
+          : Math.pow(1 + config.rates.inflationRate, y.yr);
       return sum + (y.totalTax / (deflator > 0 ? deflator : 1));
     }, 0);
   }, [years, summary.totalTaxesPaid, config.rates.inflationRate]);

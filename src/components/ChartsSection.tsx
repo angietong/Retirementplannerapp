@@ -1,7 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
   AreaChart,
@@ -14,8 +12,8 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
-import { Flag, Sparkles, Activity } from 'lucide-react';
-import { PlannerConfig, YearSimulationResult, DollarDisplayMode, MonteCarloPercentileResult } from '../types';
+import { Flag, Activity } from 'lucide-react';
+import { PlannerConfig, YearSimulationResult, DollarDisplayMode, StressPreset } from '../types';
 import { runMonteCarloSimulation } from '../engine';
 import { formatCurrency, formatCurrencyCompact } from '../utils/formatters';
 
@@ -24,6 +22,7 @@ interface ChartsSectionProps {
   years: YearSimulationResult[];
   showAll?: boolean;
   dollarMode?: DollarDisplayMode;
+  stressPreset?: StressPreset;
   onDollarModeChange?: (mode: DollarDisplayMode) => void;
 }
 
@@ -48,6 +47,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
   years,
   showAll = false,
   dollarMode = 'nominal',
+  stressPreset = 'baseline',
   onDollarModeChange,
 }) => {
   const [activeChart, setActiveChart] = useState<'depletion' | 'income' | 'expenses' | 'balance'>('depletion');
@@ -55,25 +55,23 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
   const [isMonteCarlo, setIsMonteCarlo] = useState(false);
   const [mcVolatility, setMcVolatility] = useState(0.12);
 
+  // Only run Monte Carlo when toggled ON, and honor the active stressPreset
   const mcResult = useMemo(() => {
-    return runMonteCarloSimulation(config, mcVolatility, 200, 'baseline', dollarMode);
-  }, [config, mcVolatility, dollarMode]);
+    if (!isMonteCarlo) return null;
+    return runMonteCarloSimulation(config, mcVolatility, 200, stressPreset, dollarMode);
+  }, [isMonteCarlo, config, mcVolatility, stressPreset, dollarMode]);
 
-  const mcChartData = mcResult.calYears.map((calYr: number, i: number) => {
-    const p10 = Math.max(0, mcResult.p10[i]);
-    const p25 = Math.max(0, mcResult.p25[i]);
-    const p50 = Math.max(0, mcResult.p50[i]);
-    const p75 = Math.max(0, mcResult.p75[i]);
-    const p90 = Math.max(0, mcResult.p90[i]);
-    return {
+  const mcChartData = useMemo(() => {
+    if (!mcResult) return [];
+    return mcResult.calYears.map((calYr: number, i: number) => ({
       year: calYr,
-      p10,
-      p25,
-      p50,
-      p75,
-      p90,
-    };
-  });
+      p10: Math.max(0, mcResult.p10[i]),
+      p25: Math.max(0, mcResult.p25[i]),
+      p50: Math.max(0, mcResult.p50[i]),
+      p75: Math.max(0, mcResult.p75[i]),
+      p90: Math.max(0, mcResult.p90[i]),
+    }));
+  }, [mcResult]);
 
   const hasSpouse = Boolean(config.scenario?.hasSpouse);
   const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
@@ -94,15 +92,16 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
   const ssMinYearObj = years.find(y => y.age >= config.milestones.ssMinAge);
   const ssMinYear = ssMinYearObj ? ssMinYearObj.calYear : null;
 
-  // Deflator helper
-  const getDeflator = (yrIndex: number) => {
+  // Deflator helper using actual cumulative simulated inflation
+  const getDeflator = (y: YearSimulationResult) => {
     if (dollarMode === 'nominal') return 1;
-    return Math.pow(1 + config.rates.inflationRate, yrIndex);
+    const f = y.cumGeneralInflation ?? Math.pow(1 + config.rates.inflationRate, y.yr);
+    return f > 0 ? f : 1;
   };
 
   // Prepare data for Depletion Chart
   const depletionData = years.map(y => {
-    const deflator = getDeflator(y.yr);
+    const deflator = getDeflator(y);
     const adjBal = Math.round(y.combEndBal / deflator);
     return {
       year: y.calYear,
@@ -116,7 +115,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
 
   // Prepare data for Income by Source (Stacked Bar)
   const incomeData = years.map(y => {
-    const deflator = getDeflator(y.yr);
+    const deflator = getDeflator(y);
     const item: Record<string, any> = {
       year: y.calYear,
       age: y.age,
@@ -130,7 +129,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
 
   // Prepare data for Expenses & Taxes (Stacked Bar)
   const expenseData = years.map(y => {
-    const deflator = getDeflator(y.yr);
+    const deflator = getDeflator(y);
     return {
       year: y.calYear,
       age: y.age,
@@ -147,7 +146,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
   // Prepare data for Balance by Source (Stacked Area/Bar)
   const depletingSources = config.sources.filter(s => s.monthly === 'N');
   const balanceData = years.map(y => {
-    const deflator = getDeflator(y.yr);
+    const deflator = getDeflator(y);
     const item: Record<string, any> = {
       year: y.calYear,
       age: y.age,
@@ -344,7 +343,7 @@ export const ChartsSection: React.FC<ChartsSectionProps> = ({
       </div>
 
       {/* Monte Carlo Fan Chart View */}
-      {isMonteCarlo && (
+      {isMonteCarlo && mcResult && (
         <div className="bg-white p-5 rounded-xl border border-purple-200 shadow-sm space-y-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
