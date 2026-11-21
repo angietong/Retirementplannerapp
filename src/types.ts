@@ -129,6 +129,13 @@ export interface PlannerConfig {
   acaOptimization?: AcaOptimizationConfig;
 }
 
+export interface SavedScenario {
+  id: string;
+  name: string;
+  savedAt: string;
+  config: PlannerConfig;
+}
+
 export interface YearSimulationResult {
   yr: number;
   calYear: number;

@@ -1,10 +1,32 @@
-import { useState, useMemo } from 'react';
-import { AlertTriangle, ArrowRight } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { AlertTriangle, ArrowRight, ShieldCheck, Lock } from 'lucide-react';
 import { DEFAULT_CONFIG, STRESS_PRESETS } from './defaultData';
-import { PlannerConfig, DollarDisplayMode, StressPreset } from './types';
+import { PlannerConfig, DollarDisplayMode, StressPreset, SavedScenario } from './types';
 import { runSimulation } from './engine';
 import { exportToExcel } from './exportExcel';
 import { formatCurrency } from './utils/formatters';
+import { normalizeConfig } from './utils/configNormalizer';
+import {
+  FileSystemFileHandleLike,
+  VAULT_FILE_EXTENSION,
+  VaultKeyMaterial,
+  VaultPayload,
+  canUseDirectFileSystem,
+  clearLegacyBrowserStorage,
+  decryptVaultText,
+  deriveVaultKey,
+  downloadEncryptedVaultFile,
+  encryptVaultPayload,
+  hasLegacyBrowserStorage,
+  isEncryptedVaultText,
+  pickOpenVaultFileHandle,
+  pickSaveVaultFileHandle,
+  readAndClearLegacyBrowserStorage,
+  serializeVaultEnvelope,
+  suggestVaultFileName,
+  vaultFileNameToPlanName,
+  writeToFileHandle,
+} from './utils/encryptedVault';
 import { Sidebar, NavSection } from './components/Sidebar';
 import { Header } from './components/Header';
 import { KeyResultsCards } from './components/KeyResultsCards';
@@ -16,136 +38,89 @@ import { RothConversionSimulator } from './components/RothConversionSimulator';
 import { AcaSubsidySimulator } from './components/AcaSubsidySimulator';
 import { WhatIfComparisonView } from './components/WhatIfComparisonView';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { ScenarioManagerModal, SavedScenario } from './components/ScenarioManagerModal';
+import {
+  VaultManagerModal,
+  PendingVaultFile,
+  NewPlanOrigin,
+} from './components/VaultManagerModal';
 import { Modal } from './components/Modal';
 
-function normalizeConfig(parsed: any): PlannerConfig {
-  if (!parsed || typeof parsed !== 'object') return DEFAULT_CONFIG;
-  return {
-    ...DEFAULT_CONFIG,
-    ...parsed,
-    scenario: {
-      ...DEFAULT_CONFIG.scenario,
-      ...(parsed.scenario || {}),
-    },
-    milestones: {
-      ...DEFAULT_CONFIG.milestones,
-      ...(parsed.milestones || {}),
-      rmdAge: Number(parsed.milestones?.rmdAge) || DEFAULT_CONFIG.milestones.rmdAge,
-      medicareAge: Number(parsed.milestones?.medicareAge) || DEFAULT_CONFIG.milestones.medicareAge,
-    },
-    rates: {
-      ...DEFAULT_CONFIG.rates,
-      ...(parsed.rates || {}),
-    },
-    expenses: {
-      ...DEFAULT_CONFIG.expenses,
-      ...(parsed.expenses || {}),
-    },
-    majorExpenses: Array.isArray(parsed.majorExpenses)
-      ? parsed.majorExpenses
-      : DEFAULT_CONFIG.majorExpenses,
-    rothConversion: {
-      ...DEFAULT_CONFIG.rothConversion,
-      ...(parsed.rothConversion || {}),
-    },
-    taxDeferredStrategy: {
-      ...DEFAULT_CONFIG.taxDeferredStrategy,
-      ...(parsed.taxDeferredStrategy || {}),
-    },
-    acaOptimization: {
-      ...DEFAULT_CONFIG.acaOptimization,
-      ...(parsed.acaOptimization || {}),
-      adjustMedicalExpensesWithSubsidy:
-        parsed.acaOptimization?.creditAccountId !== undefined
-          ? parsed.acaOptimization.adjustMedicalExpensesWithSubsidy
-          : true,
-      creditAccountId:
-        parsed.acaOptimization?.creditAccountId ?? DEFAULT_CONFIG.acaOptimization?.creditAccountId,
-    },
-    sources:
-      Array.isArray(parsed.sources) && parsed.sources.length > 0
-        ? parsed.sources.map((s: any, idx: number) => {
-            const defaultSource = DEFAULT_CONFIG.sources[idx] || DEFAULT_CONFIG.sources[0];
-            return {
-              ...defaultSource,
-              ...s,
-              balance:
-                typeof s?.balance === 'number' && !isNaN(s.balance)
-                  ? s.balance
-                  : defaultSource.balance,
-              priority: typeof s?.priority === 'number' ? s.priority : defaultSource.priority,
-              taxType: s?.taxType || defaultSource.taxType,
-              monthly: s?.monthly || defaultSource.monthly,
-            };
-          })
-        : DEFAULT_CONFIG.sources,
-  };
-}
-
-function loadSavedConfig(): PlannerConfig {
-  try {
-    const saved = localStorage.getItem('rp_config_v2');
-    if (!saved) return DEFAULT_CONFIG;
-    return normalizeConfig(JSON.parse(saved));
-  } catch (e) {
-    console.warn('Failed to parse saved config, using defaults', e);
-    return DEFAULT_CONFIG;
-  }
-}
-
-function loadSavedScenarios(): SavedScenario[] {
-  try {
-    const raw = localStorage.getItem('rp_saved_scenarios_v1');
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
 export function App() {
-  const [config, setConfig] = useState<PlannerConfig>(() => loadSavedConfig());
-  const [savedScenarios, setSavedScenarios] = useState<SavedScenario[]>(() => loadSavedScenarios());
+  // Configuration & snapshots live strictly in memory until encrypted to a .rpvault file
+  const [config, setConfig] = useState<PlannerConfig>(() => DEFAULT_CONFIG);
+  const [savedScenarios, setSavedScenarios] = useState<SavedScenario[]>([]);
   const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
+
+  // Encrypted Vault & Active Plan session state (key material stays non-extractable in RAM only)
+  const [activePlanName, setActivePlanName] = useState<string | null>(null);
+  const [vaultKeyMaterial, setVaultKeyMaterial] = useState<VaultKeyMaterial | null>(null);
+  const [vaultFileHandle, setVaultFileHandle] = useState<FileSystemFileHandleLike | null>(null);
+  const [vaultFileName, setVaultFileName] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [autoSaveToFile, setAutoSaveToFile] = useState(true);
+  const [hasLegacyBrowserData, setHasLegacyBrowserData] = useState<boolean>(() =>
+    hasLegacyBrowserStorage()
+  );
+  const [vaultToast, setVaultToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [externalPendingFile, setExternalPendingFile] = useState<PendingVaultFile | null>(null);
+  const quickOpenFileInputRef = useRef<HTMLInputElement>(null);
 
   const [activeSection, setActiveSection] = useState<NavSection>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dollarMode, setDollarMode] = useState<DollarDisplayMode>('nominal');
   const [activePreset, setActivePreset] = useState<StressPreset>('baseline');
   const [showResetModal, setShowResetModal] = useState(false);
-  const [showScenariosModal, setShowScenariosModal] = useState(false);
+  const [showVaultModal, setShowVaultModal] = useState(false);
+  const [vaultModalMode, setVaultModalMode] = useState<
+    'vault' | 'snapshots' | 'new-plan' | 'save-current' | 'unlock'
+  >('vault');
   const [snapshotView, setSnapshotView] = useState<'first10' | 'rmd' | 'all'>('first10');
 
   // Undo state when applying a What-If strategy
   const [previousConfigBeforeWhatIf, setPreviousConfigBeforeWhatIf] = useState<PlannerConfig | null>(null);
   const [lastAppliedStrategyName, setLastAppliedStrategyName] = useState<string | null>(null);
 
+  const toastTimerRef = useRef<number | null>(null);
+  const showToast = useCallback((type: 'success' | 'error', text: string) => {
+    setVaultToast({ type, text });
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setVaultToast(null), 3600);
+  }, []);
+
   const simulationResults = useMemo(() => {
     return runSimulation(config, activePreset);
   }, [config, activePreset]);
 
-  const persistConfig = (updated: PlannerConfig) => {
-    setConfig(updated);
-    try {
-      localStorage.setItem('rp_config_v2', JSON.stringify(updated));
-    } catch (e) {
-      console.warn('LocalStorage save failed', e);
-    }
-  };
+  const buildVaultPayload = useCallback(
+    (overrides?: {
+      planName?: string;
+      activeConfig?: PlannerConfig;
+      activeScenarioId?: string | null;
+      savedScenarios?: SavedScenario[];
+      dollarMode?: DollarDisplayMode;
+      activePreset?: StressPreset;
+    }): VaultPayload => {
+      return {
+        schemaVersion: 1,
+        planName: overrides?.planName ?? activePlanName ?? undefined,
+        savedAt: new Date().toISOString(),
+        activeConfig: overrides?.activeConfig ?? config,
+        activeScenarioId:
+          overrides?.activeScenarioId !== undefined ? overrides.activeScenarioId : activeScenarioId,
+        savedScenarios: overrides?.savedScenarios ?? savedScenarios,
+        preferences: {
+          dollarMode: overrides?.dollarMode ?? dollarMode,
+          activePreset: overrides?.activePreset ?? activePreset,
+        },
+      };
+    },
+    [activePlanName, config, activeScenarioId, savedScenarios, dollarMode, activePreset]
+  );
 
   const handleConfigChange = (updated: PlannerConfig) => {
-    persistConfig(updated);
-  };
-
-  const persistScenarios = (next: SavedScenario[]) => {
-    setSavedScenarios(next);
-    try {
-      localStorage.setItem('rp_saved_scenarios_v1', JSON.stringify(next));
-    } catch (e) {
-      console.warn('Failed to persist scenarios', e);
-    }
+    setConfig(updated);
+    setHasUnsavedChanges(true);
   };
 
   const handleSaveScenario = (name: string) => {
@@ -155,25 +130,26 @@ export function App() {
       savedAt: new Date().toISOString(),
       config: JSON.parse(JSON.stringify(config)),
     };
-    const next = [entry, ...savedScenarios];
-    persistScenarios(next);
+    setSavedScenarios(prev => [entry, ...prev]);
     setActiveScenarioId(entry.id);
+    setHasUnsavedChanges(true);
   };
 
   const handleLoadScenario = (scen: SavedScenario) => {
-    persistConfig(normalizeConfig(scen.config));
+    setConfig(normalizeConfig(scen.config));
     setActiveScenarioId(scen.id);
+    setHasUnsavedChanges(true);
   };
 
   const handleDeleteScenario = (id: string) => {
-    const next = savedScenarios.filter(s => s.id !== id);
-    persistScenarios(next);
+    setSavedScenarios(prev => prev.filter(s => s.id !== id));
     if (activeScenarioId === id) setActiveScenarioId(null);
+    setHasUnsavedChanges(true);
   };
 
-  const handleImportConfig = (imported: PlannerConfig, label?: string) => {
+  const handleImportLegacyJson = (imported: PlannerConfig, label?: string) => {
     const normalized = normalizeConfig(imported);
-    persistConfig(normalized);
+    setConfig(normalized);
     if (label) {
       const entry: SavedScenario = {
         id: `scen-${Date.now()}`,
@@ -181,10 +157,311 @@ export function App() {
         savedAt: new Date().toISOString(),
         config: normalized,
       };
-      persistScenarios([entry, ...savedScenarios]);
+      setSavedScenarios(prev => [entry, ...prev]);
       setActiveScenarioId(entry.id);
     }
+    setHasUnsavedChanges(true);
   };
+
+  const handleMigrateLegacyBrowserData = () => {
+    const { config: legacyConfig, scenarios: legacyScenarios } = readAndClearLegacyBrowserStorage();
+    if (legacyConfig) setConfig(legacyConfig);
+    if (legacyScenarios.length > 0) setSavedScenarios(legacyScenarios);
+    setHasLegacyBrowserData(false);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleDiscardLegacyBrowserData = () => {
+    clearLegacyBrowserStorage();
+    setHasLegacyBrowserData(false);
+  };
+
+  const handleCreatePlanVault = async ({
+    planName,
+    fileName,
+    passphrase,
+    origin,
+  }: {
+    planName: string;
+    fileName: string;
+    passphrase: string;
+    origin: NewPlanOrigin;
+  }) => {
+    const cleanPlanName = planName.trim();
+    const normalizedFileName = fileName.endsWith(VAULT_FILE_EXTENSION)
+      ? fileName
+      : `${fileName}${VAULT_FILE_EXTENSION}`;
+
+    const nextConfig: PlannerConfig =
+      origin === 'fresh' ? JSON.parse(JSON.stringify(DEFAULT_CONFIG)) : config;
+    const nextScenarios: SavedScenario[] = origin === 'fresh' ? [] : savedScenarios;
+    const nextScenarioId: string | null = origin === 'fresh' ? null : activeScenarioId;
+    const nextDollarMode: DollarDisplayMode = origin === 'fresh' ? 'nominal' : dollarMode;
+    const nextPreset: StressPreset = origin === 'fresh' ? 'baseline' : activePreset;
+
+    const keyMaterial = await deriveVaultKey(passphrase);
+    const payload = buildVaultPayload({
+      planName: cleanPlanName,
+      activeConfig: nextConfig,
+      activeScenarioId: nextScenarioId,
+      savedScenarios: nextScenarios,
+      dollarMode: nextDollarMode,
+      activePreset: nextPreset,
+    });
+    const envelope = await encryptVaultPayload(payload, keyMaterial);
+    const serialized = serializeVaultEnvelope(envelope);
+
+    const handle = await pickSaveVaultFileHandle(normalizedFileName);
+    if (handle) {
+      await writeToFileHandle(handle, serialized);
+      setVaultFileHandle(handle);
+      setVaultFileName(handle.name);
+      setAutoSaveToFile(true);
+    } else {
+      downloadEncryptedVaultFile(serialized, normalizedFileName);
+      setVaultFileHandle(null);
+      setVaultFileName(normalizedFileName);
+    }
+
+    setConfig(nextConfig);
+    setSavedScenarios(nextScenarios);
+    setActiveScenarioId(nextScenarioId);
+    setDollarMode(nextDollarMode);
+    setActivePreset(nextPreset);
+    setActivePlanName(cleanPlanName);
+    setVaultKeyMaterial(keyMaterial);
+    setLastSavedAt(payload.savedAt);
+    setHasUnsavedChanges(false);
+    setPreviousConfigBeforeWhatIf(null);
+    setLastAppliedStrategyName(null);
+    showToast('success', `Created plan "${cleanPlanName}" (${handle?.name || normalizedFileName}).`);
+  };
+
+  const handleOpenRawPlanFile = (
+    fileName: string,
+    content: string,
+    handle: FileSystemFileHandleLike | null
+  ) => {
+    if (isEncryptedVaultText(content)) {
+      setExternalPendingFile({ fileName, content, handle });
+      setVaultModalMode('unlock');
+      setShowVaultModal(true);
+      return;
+    }
+
+    // Legacy unencrypted JSON fallback
+    try {
+      const parsed = JSON.parse(content);
+      const importedConfig: PlannerConfig =
+        parsed?.config && parsed.config.scenario ? parsed.config : parsed;
+      if (!importedConfig || !importedConfig.scenario || !Array.isArray(importedConfig.sources)) {
+        throw new Error('Invalid file format');
+      }
+      const cleanName = vaultFileNameToPlanName(fileName);
+      handleImportLegacyJson(importedConfig, cleanName);
+      setActivePlanName(cleanName);
+      setExternalPendingFile(null);
+      setVaultModalMode('save-current');
+      setShowVaultModal(true);
+      showToast('success', `Loaded legacy JSON "${fileName}". Save it as an encrypted vault.`);
+    } catch {
+      showToast(
+        'error',
+        `Unrecognized file. Select an encrypted ${VAULT_FILE_EXTENSION} plan vault.`
+      );
+    }
+  };
+
+  const handleTriggerOpenPlan = async () => {
+    if (canUseDirectFileSystem()) {
+      try {
+        const picked = await pickOpenVaultFileHandle();
+        if (picked) {
+          handleOpenRawPlanFile(picked.fileName, picked.content, picked.handle);
+        }
+        return;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        showToast('error', err?.message || 'Could not open plan file.');
+        return;
+      }
+    }
+    quickOpenFileInputRef.current?.click();
+  };
+
+  const handleQuickOpenFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('error', 'Selected file exceeds the 5 MB limit.');
+      if (quickOpenFileInputRef.current) quickOpenFileInputRef.current.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      handleOpenRawPlanFile(file.name, String(reader.result || ''), null);
+      if (quickOpenFileInputRef.current) quickOpenFileInputRef.current.value = '';
+    };
+    reader.onerror = () => {
+      showToast('error', 'Failed to read selected file.');
+      if (quickOpenFileInputRef.current) quickOpenFileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const handleTriggerNewPlan = () => {
+    setExternalPendingFile(null);
+    setVaultModalMode('new-plan');
+    setShowVaultModal(true);
+  };
+
+  const handleUnlockVault = async (file: PendingVaultFile, passphrase: string) => {
+    const { payload, keyMaterial } = await decryptVaultText(file.content, passphrase);
+    const resolvedPlanName = payload.planName || vaultFileNameToPlanName(file.fileName);
+    setConfig(payload.activeConfig);
+    setSavedScenarios(payload.savedScenarios);
+    setActiveScenarioId(payload.activeScenarioId);
+    if (payload.preferences) {
+      setDollarMode(payload.preferences.dollarMode);
+      setActivePreset(payload.preferences.activePreset);
+    }
+    setActivePlanName(resolvedPlanName);
+    setVaultKeyMaterial(keyMaterial);
+    setVaultFileHandle(file.handle);
+    setVaultFileName(file.fileName);
+    setLastSavedAt(payload.savedAt);
+    setHasUnsavedChanges(false);
+    setPreviousConfigBeforeWhatIf(null);
+    setLastAppliedStrategyName(null);
+    setExternalPendingFile(null);
+    showToast('success', `Opened plan "${resolvedPlanName}" (${file.fileName}).`);
+  };
+
+  const handleSaveVault = useCallback(async () => {
+    if (!vaultKeyMaterial) {
+      setExternalPendingFile(null);
+      setVaultModalMode('save-current');
+      setShowVaultModal(true);
+      return;
+    }
+    const payload = buildVaultPayload();
+    const envelope = await encryptVaultPayload(payload, vaultKeyMaterial);
+    const serialized = serializeVaultEnvelope(envelope);
+    const fileName = vaultFileName || suggestVaultFileName(config, false, activePlanName);
+
+    if (vaultFileHandle) {
+      await writeToFileHandle(vaultFileHandle, serialized);
+      setLastSavedAt(payload.savedAt);
+      setHasUnsavedChanges(false);
+      showToast('success', `Saved encrypted changes to ${vaultFileHandle.name}.`);
+    } else {
+      downloadEncryptedVaultFile(serialized, fileName);
+      setVaultFileName(fileName);
+      setLastSavedAt(payload.savedAt);
+      setHasUnsavedChanges(false);
+      showToast('success', `Downloaded updated encrypted vault (${fileName}).`);
+    }
+  }, [vaultKeyMaterial, buildVaultPayload, vaultFileName, config, activePlanName, vaultFileHandle, showToast]);
+
+  const handleDownloadBackupCopy = async () => {
+    if (!vaultKeyMaterial) {
+      setExternalPendingFile(null);
+      setVaultModalMode('save-current');
+      setShowVaultModal(true);
+      return;
+    }
+    const payload = buildVaultPayload();
+    const envelope = await encryptVaultPayload(payload, vaultKeyMaterial);
+    const serialized = serializeVaultEnvelope(envelope);
+    const backupName = suggestVaultFileName(config, true, activePlanName);
+    downloadEncryptedVaultFile(serialized, backupName);
+    showToast('success', `Encrypted backup downloaded (${backupName}).`);
+  };
+
+  const handleChangePassphrase = async (newPassphrase: string) => {
+    const newKeyMaterial = await deriveVaultKey(newPassphrase);
+    const payload = buildVaultPayload();
+    const envelope = await encryptVaultPayload(payload, newKeyMaterial);
+    const serialized = serializeVaultEnvelope(envelope);
+    const fileName = vaultFileName || suggestVaultFileName(config, false, activePlanName);
+
+    if (vaultFileHandle) {
+      await writeToFileHandle(vaultFileHandle, serialized);
+    } else {
+      downloadEncryptedVaultFile(serialized, fileName);
+    }
+
+    setVaultKeyMaterial(newKeyMaterial);
+    setLastSavedAt(payload.savedAt);
+    setHasUnsavedChanges(false);
+    showToast('success', 'Vault passphrase updated and file re-encrypted.');
+  };
+
+  const handleLockVault = () => {
+    setActivePlanName(null);
+    setVaultKeyMaterial(null);
+    setVaultFileHandle(null);
+    setVaultFileName(null);
+    setLastSavedAt(null);
+    setHasUnsavedChanges(false);
+    setConfig(DEFAULT_CONFIG);
+    setSavedScenarios([]);
+    setActiveScenarioId(null);
+    setActivePreset('baseline');
+    setDollarMode('nominal');
+    setPreviousConfigBeforeWhatIf(null);
+    setLastAppliedStrategyName(null);
+  };
+
+  // Optional auto-save to linked local file handle (debounced)
+  useEffect(() => {
+    if (!autoSaveToFile || !vaultKeyMaterial || !vaultFileHandle || !hasUnsavedChanges) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        const payload = buildVaultPayload();
+        const envelope = await encryptVaultPayload(payload, vaultKeyMaterial);
+        const serialized = serializeVaultEnvelope(envelope);
+        await writeToFileHandle(vaultFileHandle, serialized);
+        setLastSavedAt(payload.savedAt);
+        setHasUnsavedChanges(false);
+      } catch {
+        setAutoSaveToFile(false);
+        showToast('error', 'Auto-save to linked file failed. Click Save Plan to save manually.');
+      }
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [autoSaveToFile, vaultKeyMaterial, vaultFileHandle, hasUnsavedChanges, buildVaultPayload, showToast]);
+
+  // Ctrl/Cmd + S shortcut to save encrypted vault
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (vaultKeyMaterial) {
+          handleSaveVault().catch(() => {
+            showToast('error', 'Failed to save encrypted vault.');
+          });
+        } else {
+          setExternalPendingFile(null);
+          setVaultModalMode('save-current');
+          setShowVaultModal(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [vaultKeyMaterial, handleSaveVault, showToast]);
+
+  // Warn before closing tab if there are unsaved in-memory edits
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const handleResetConfirm = () => {
     setConfig(DEFAULT_CONFIG);
@@ -193,19 +470,20 @@ export function App() {
     setActiveScenarioId(null);
     setPreviousConfigBeforeWhatIf(null);
     setLastAppliedStrategyName(null);
-    localStorage.removeItem('rp_config_v2');
+    setAutoSaveToFile(false);
+    setHasUnsavedChanges(Boolean(vaultKeyMaterial));
     setShowResetModal(false);
   };
 
   const handleApplyWhatIf = (nextConfig: PlannerConfig, strategyName: string) => {
     setPreviousConfigBeforeWhatIf(config);
     setLastAppliedStrategyName(strategyName);
-    persistConfig(nextConfig);
+    handleConfigChange(nextConfig);
   };
 
   const handleUndoWhatIf = () => {
     if (!previousConfigBeforeWhatIf) return;
-    persistConfig(previousConfigBeforeWhatIf);
+    handleConfigChange(previousConfigBeforeWhatIf);
     setPreviousConfigBeforeWhatIf(null);
     setLastAppliedStrategyName(null);
   };
@@ -245,14 +523,32 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex">
+      {/* Hidden global file input for 1-click Open Plan fallback */}
+      <input
+        ref={quickOpenFileInputRef}
+        type="file"
+        accept=".rpvault,application/octet-stream,application/json,.json"
+        onChange={handleQuickOpenFileInputChange}
+        className="hidden"
+      />
+
       {/* Persistent Desktop Sidebar + Mobile Drawer */}
       <Sidebar
         activeSection={activeSection}
         onSelectSection={setActiveSection}
         config={config}
         savedCount={savedScenarios.length}
-        activeScenarioName={activeScenarioObj?.name ?? null}
-        onOpenScenarios={() => setShowScenariosModal(true)}
+        activePlanName={activePlanName}
+        isVaultUnlocked={Boolean(vaultKeyMaterial)}
+        vaultFileName={vaultFileName}
+        hasUnsavedChanges={hasUnsavedChanges}
+        onNewPlan={handleTriggerNewPlan}
+        onOpenPlan={handleTriggerOpenPlan}
+        onOpenVault={() => {
+          setExternalPendingFile(null);
+          setVaultModalMode('vault');
+          setShowVaultModal(true);
+        }}
         onReset={() => setShowResetModal(true)}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
@@ -263,13 +559,61 @@ export function App() {
         <Header
           config={config}
           activeSection={activeSection}
+          activePlanName={activePlanName}
           activeScenarioName={activeScenarioObj?.name ?? null}
+          isVaultUnlocked={Boolean(vaultKeyMaterial)}
+          vaultFileName={vaultFileName}
+          hasUnsavedChanges={hasUnsavedChanges}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
-          onOpenScenarios={() => setShowScenariosModal(true)}
+          onNewPlan={handleTriggerNewPlan}
+          onOpenPlan={handleTriggerOpenPlan}
+          onOpenVault={() => {
+            setExternalPendingFile(null);
+            setVaultModalMode('vault');
+            setShowVaultModal(true);
+          }}
+          onQuickSaveVault={() => {
+            handleSaveVault().catch(() => {
+              showToast('error', 'Failed to save encrypted vault.');
+            });
+          }}
           onExport={handleExport}
         />
 
         <main className="flex-1 w-full max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {/* One-time migration banner if legacy browser localStorage data exists */}
+          {hasLegacyBrowserData && (
+            <div className="mb-5 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-2.5 text-xs text-amber-900">
+                <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                <span>
+                  <strong className="font-semibold">Encrypted File Storage Active:</strong> Previous unencrypted data was found in browser storage. Migrate it into an encrypted <code className="font-mono">{VAULT_FILE_EXTENSION}</code> vault and wipe browser storage.
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleMigrateLegacyBrowserData();
+                    setExternalPendingFile(null);
+                    setVaultModalMode('save-current');
+                    setShowVaultModal(true);
+                  }}
+                  className="px-3 py-1.5 min-h-[34px] rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+                >
+                  Migrate to Encrypted File
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDiscardLegacyBrowserData}
+                  className="px-3 py-1.5 min-h-[34px] rounded-lg bg-white hover:bg-amber-100/60 border border-amber-300 text-amber-900 text-xs font-medium transition-colors whitespace-nowrap"
+                >
+                  Clear Old Data
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Unified Global Scenario Controls Strip */}
           <div className="bg-white border border-slate-200 rounded-xl p-3 mb-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div className="flex items-center gap-2.5 flex-wrap">
@@ -616,29 +960,49 @@ export function App() {
         </main>
 
         <footer className="border-t border-slate-200 bg-white py-4 px-6 text-center text-xs text-slate-500">
-          Retirement Financial Planner · Priority-based withdrawal sequencing and depletion projection engine
+          Retirement Financial Planner · AES-256-GCM encrypted file storage · Zero browser localStorage persistence
         </footer>
       </div>
 
-      {/* Accessible Saved Scenarios & JSON Backup Modal */}
-      <ScenarioManagerModal
-        open={showScenariosModal}
-        onClose={() => setShowScenariosModal(false)}
+      {/* Encrypted Vault & Plan Snapshots Modal */}
+      <VaultManagerModal
+        open={showVaultModal}
+        initialMode={vaultModalMode}
+        externalPendingFile={externalPendingFile}
+        onClearExternalPendingFile={() => setExternalPendingFile(null)}
+        onClose={() => setShowVaultModal(false)}
         currentConfig={config}
         savedScenarios={savedScenarios}
         activeScenarioId={activeScenarioId}
+        activePlanName={activePlanName}
+        isVaultUnlocked={Boolean(vaultKeyMaterial)}
+        vaultFileName={vaultFileName}
+        hasLinkedFileHandle={Boolean(vaultFileHandle)}
+        hasUnsavedChanges={hasUnsavedChanges}
+        lastSavedAt={lastSavedAt}
+        autoSaveToFile={autoSaveToFile}
+        hasLegacyBrowserData={hasLegacyBrowserData}
+        onToggleAutoSave={setAutoSaveToFile}
+        onCreatePlanVault={handleCreatePlanVault}
+        onUnlockVault={handleUnlockVault}
+        onSaveVault={handleSaveVault}
+        onDownloadBackupCopy={handleDownloadBackupCopy}
+        onChangePassphrase={handleChangePassphrase}
+        onLockVault={handleLockVault}
+        onImportLegacyJson={handleImportLegacyJson}
+        onMigrateLegacyBrowserData={handleMigrateLegacyBrowserData}
+        onDiscardLegacyBrowserData={handleDiscardLegacyBrowserData}
         onSaveScenario={handleSaveScenario}
         onLoadScenario={handleLoadScenario}
         onDeleteScenario={handleDeleteScenario}
-        onImportConfig={handleImportConfig}
       />
 
       {/* Accessible Reset Confirmation Modal */}
       <Modal
         open={showResetModal}
         onClose={() => setShowResetModal(false)}
-        title="Reset Planner to Baseline?"
-        subtitle="Restores default sample household parameters and accounts"
+        title="Reset Session to Baseline?"
+        subtitle="Restores default sample household parameters and accounts in memory"
         icon={
           <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center">
             <AlertTriangle className="w-5 h-5" />
@@ -646,7 +1010,7 @@ export function App() {
         }
       >
         <p className="text-xs sm:text-sm text-slate-600 mb-6 leading-relaxed">
-          This will clear your current unsaved adjustments in browser storage and restore the default 2-person sample scenario. Your named snapshots in Saved Plans will remain intact.
+          This restores the default 2-person sample plan in your current session. Your encrypted <code className="font-mono text-xs">{VAULT_FILE_EXTENSION}</code> file on disk is not overwritten unless you explicitly save.
         </p>
         <div className="flex items-center justify-end gap-2.5">
           <button
@@ -665,6 +1029,22 @@ export function App() {
           </button>
         </div>
       </Modal>
+
+      {/* Non-blocking Vault Save Toast */}
+      {vaultToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-5 right-5 z-50 max-w-sm px-4 py-3 rounded-xl shadow-lg border text-xs font-semibold flex items-center gap-2 ${
+            vaultToast.type === 'success'
+              ? 'bg-slate-900 text-white border-slate-800'
+              : 'bg-rose-600 text-white border-rose-700'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+          <span>{vaultToast.text}</span>
+        </div>
+      )}
 
       <OfflineIndicator />
     </div>

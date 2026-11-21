@@ -30,7 +30,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleReset = () => {
     try {
+      // Clear any legacy localStorage keys if present
       localStorage.removeItem('rp_config_v2');
+      localStorage.removeItem('rp_saved_scenarios_v1');
       localStorage.removeItem('rp_config');
     } catch {
       // Ignore storage errors
@@ -57,7 +59,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <div>
               <h2 className="text-lg font-bold text-slate-900">Simulation Error Detected</h2>
               <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                The retirement planning engine encountered an unexpected state. This usually occurs if previously stored browser session data is out of date.
+                The retirement planning engine encountered an unexpected state. Reloading will start a clean in-memory session; your encrypted vault file on disk remains untouched.
               </p>
             </div>
 

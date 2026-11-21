@@ -11,6 +11,9 @@ import {
   Receipt,
   Percent,
   RotateCcw,
+  ShieldCheck,
+  Lock,
+  FilePlus2,
   FolderOpen,
   X,
 } from 'lucide-react';
@@ -33,8 +36,13 @@ interface SidebarProps {
   onSelectSection: (section: NavSection) => void;
   config: PlannerConfig;
   savedCount: number;
-  activeScenarioName: string | null;
-  onOpenScenarios: () => void;
+  activePlanName: string | null;
+  isVaultUnlocked: boolean;
+  vaultFileName: string | null;
+  hasUnsavedChanges: boolean;
+  onNewPlan: () => void;
+  onOpenPlan: () => void;
+  onOpenVault: () => void;
   onReset: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
@@ -55,8 +63,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectSection,
   config,
   savedCount,
-  activeScenarioName,
-  onOpenScenarios,
+  activePlanName,
+  isVaultUnlocked,
+  vaultFileName,
+  hasUnsavedChanges,
+  onNewPlan,
+  onOpenPlan,
+  onOpenVault,
   onReset,
   mobileOpen,
   onCloseMobile,
@@ -195,23 +208,71 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Sidebar Utility Footer */}
-      <div className="p-3 border-t border-slate-200 space-y-1.5 bg-slate-50/60 shrink-0">
+      <div className="p-3 border-t border-slate-200 space-y-2 bg-slate-50/60 shrink-0">
+        {/* Active Plan / Vault Card */}
         <button
           type="button"
           onClick={() => {
             onCloseMobile();
-            onOpenScenarios();
+            onOpenVault();
           }}
-          className="w-full flex items-center justify-between gap-2 px-3 py-2 min-h-[40px] rounded-lg text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 transition-colors"
+          className="w-full flex items-center justify-between gap-2 px-3 py-2 min-h-[42px] rounded-lg text-xs font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 hover:border-emerald-300 transition-colors text-left"
         >
-          <span className="flex items-center gap-2 truncate">
-            <FolderOpen className="w-4 h-4 text-slate-400 shrink-0" />
-            <span className="truncate">{activeScenarioName || 'Saved Plans & JSON'}</span>
+          <span className="flex items-center gap-2 min-w-0">
+            {isVaultUnlocked ? (
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+            )}
+            <span className="min-w-0">
+              <span className="block font-semibold text-slate-800 truncate">
+                {activePlanName || (isVaultUnlocked ? vaultFileName : 'Unsaved Session')}
+              </span>
+              {vaultFileName && (
+                <span className="block text-[11px] font-mono text-slate-400 truncate">
+                  {vaultFileName}
+                </span>
+              )}
+            </span>
           </span>
-          {savedCount > 0 && (
-            <span className="text-xs text-slate-400 tabular-nums shrink-0">{savedCount}</span>
-          )}
+          <span className="flex items-center gap-1.5 shrink-0">
+            {hasUnsavedChanges && (
+              <span
+                className="w-2 h-2 rounded-full bg-amber-500"
+                title="Unsaved changes"
+              />
+            )}
+            {savedCount > 0 && (
+              <span className="text-xs text-slate-400 tabular-nums">{savedCount}</span>
+            )}
+          </span>
         </button>
+
+        {/* Direct New Plan & Open Plan Actions */}
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              onCloseMobile();
+              onNewPlan();
+            }}
+            className="flex items-center justify-center gap-1.5 px-2.5 py-2 min-h-[36px] rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 transition-colors"
+          >
+            <FilePlus2 className="w-3.5 h-3.5 shrink-0" />
+            <span>New Plan</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onCloseMobile();
+              onOpenPlan();
+            }}
+            className="flex items-center justify-center gap-1.5 px-2.5 py-2 min-h-[36px] rounded-lg text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 transition-colors"
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <span>Open Plan</span>
+          </button>
+        </div>
 
         <button
           type="button"
@@ -219,9 +280,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onCloseMobile();
             onReset();
           }}
-          className="w-full flex items-center gap-2 px-3 py-2 min-h-[40px] rounded-lg text-xs font-medium text-slate-500 hover:text-rose-700 hover:bg-rose-50/70 transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-1.5 min-h-[36px] rounded-lg text-xs font-medium text-slate-500 hover:text-rose-700 hover:bg-rose-50/70 transition-colors"
         >
-          <RotateCcw className="w-4 h-4 shrink-0" />
+          <RotateCcw className="w-3.5 h-3.5 shrink-0" />
           Reset to Baseline
         </button>
       </div>
