@@ -4,6 +4,7 @@ import { runSimulation } from './engine';
 export interface WhatIfScenarioResult {
   id: 'baseline' | 'minTax' | 'minRmd' | 'acaSubsidy' | 'maxSpending' | 'maxEstate';
   name: string;
+  shortName: string;
   description: string;
   summary: PlanSummary;
   years: YearSimulationResult[];
@@ -11,6 +12,7 @@ export interface WhatIfScenarioResult {
   finalBalance: number;
   peakRmd: number;
   maxSustainableAnnualExpense: number;
+  appliedConfig: PlannerConfig;
 }
 
 export function runWhatIfComparisons(
@@ -75,18 +77,15 @@ export function runWhatIfComparisons(
   // 2. Scenario 1: Minimize Lifetime Tax
   // -------------------------------------------------------------
   const taxSources = createTaxEfficientSources();
-
-  // Candidate Roth conversion bracket ceilings
   const testBracketRooms = isMfj
     ? [0, 94300, 201050, 383900]
     : [0, 47150, 100525, 191950];
-
   const testCaps = [0, 25000, 50000, 75000, 100000];
 
   let bestTaxSim = baselineSim;
+  let bestTaxConfig: PlannerConfig = config;
   let bestTaxDescription = 'Prioritizes tax-efficient withdrawal sequencing (Cash → Brokerage → Pre-Tax → Roth).';
 
-  // Test pure tax-efficient sequencing without conversion
   const noConvConfig: PlannerConfig = {
     ...config,
     sources: taxSources,
@@ -103,10 +102,10 @@ export function runWhatIfComparisons(
   const noConvSim = runSimulation(noConvConfig, stressPreset);
   if (noConvSim.summary.totalTaxesPaid <= bestTaxSim.summary.totalTaxesPaid) {
     bestTaxSim = noConvSim;
+    bestTaxConfig = noConvConfig;
     bestTaxDescription = 'Sequences withdrawals tax-efficiently (Cash first, Brokerage second, Pre-Tax third, Roth preserved) to minimize taxable distributions.';
   }
 
-  // Grid search to find optimal bracket-filling conversion parameters
   for (const bracketMax of testBracketRooms) {
     if (bracketMax === 0) continue;
     for (const cap of testCaps) {
@@ -133,6 +132,7 @@ export function runWhatIfComparisons(
 
       if (isSolvent && testSim.summary.totalTaxesPaid < bestTaxSim.summary.totalTaxesPaid) {
         bestTaxSim = testSim;
+        bestTaxConfig = testConfig;
         const taxSavings = baselineSim.summary.totalTaxesPaid - testSim.summary.totalTaxesPaid;
         bestTaxDescription = `Sequences withdrawals tax-efficiently and executes targeted Roth conversions capped at $${(cap / 1000).toFixed(0)}k/yr (up to the ${(targetRate * 100).toFixed(0)}% bracket), reducing lifetime taxes by $${Math.round(taxSavings).toLocaleString()}.`;
       }
@@ -147,10 +147,10 @@ export function runWhatIfComparisons(
   // -------------------------------------------------------------
   const rmdSources = createPreTaxFirstSources();
   let bestRmdSim = baselineSim;
+  let bestRmdConfig: PlannerConfig = { ...config, sources: rmdSources };
   let bestRmdPeak = baselinePeakRmd;
   let bestRmdDescription = `Prioritizes drawing down traditional pre-tax accounts prior to age ${rmdAge} to deflate pre-tax balances before mandatory RMDs begin.`;
 
-  // Test pre-tax drawdown + pre-RMD conversion combinations to minimize peak RMD
   const rmdTestCaps = [30000, 60000, 90000, 150000];
   const rmdTargetRooms = isMfj ? [201050, 383900] : [100525, 191950];
 
@@ -185,6 +185,7 @@ export function runWhatIfComparisons(
       if (isSolvent && (isBetterPeak || isTiedPeakWithBetterBalance)) {
         bestRmdPeak = testPeak;
         bestRmdSim = testSim;
+        bestRmdConfig = testConfig;
         const rmdCut = baselinePeakRmd - testPeak;
         bestRmdDescription = `Draws down pre-tax accounts first and executes pre-RMD Roth conversions ($${(cap / 1000).toFixed(0)}k/yr), slashing peak mandatory RMD by $${Math.round(rmdCut).toLocaleString()}/yr.`;
       }
@@ -202,8 +203,8 @@ export function runWhatIfComparisons(
   let hi = 4.00;
   let bestSpendMult = 1.0;
   let maxSpendSim = baselineSim;
+  let maxSpendConfig: PlannerConfig = config;
 
-  // High-precision binary search on expense multiplier (0.5% resolution)
   for (let iter = 0; iter < 18; iter++) {
     const mid = (lo + hi) / 2;
     const testConfig: PlannerConfig = {
@@ -211,7 +212,7 @@ export function runWhatIfComparisons(
       sources: spendSources,
       expenses: {
         ...config.expenses,
-        expDaily: config.expenses.expDaily * mid,
+        expDaily: Math.round(config.expenses.expDaily * mid),
       },
     };
 
@@ -219,9 +220,10 @@ export function runWhatIfComparisons(
     if (testSim.summary.fundsRunOutYear === null) {
       bestSpendMult = mid;
       maxSpendSim = testSim;
-      lo = mid; // Explore higher spending capability
+      maxSpendConfig = testConfig;
+      lo = mid;
     } else {
-      hi = mid; // Exceeds portfolio capacity
+      hi = mid;
     }
   }
 
@@ -237,11 +239,11 @@ export function runWhatIfComparisons(
   // -------------------------------------------------------------
   const estateSources = createEstateSources();
   let bestEstateSim = baselineSim;
+  let bestEstateConfig: PlannerConfig = config;
   let bestEstateFinal = baselineSim.summary.finalBalance;
   let bestEstateDescription =
     'Draws down taxable cash and brokerage accounts first while keeping Roth accounts untouched at priority 99 to compound tax-free for beneficiaries.';
 
-  // Test baseline vs estate sequencing vs low-bracket Roth conversions
   const estateCandidates: PlannerConfig[] = [
     {
       ...config,
@@ -292,6 +294,7 @@ export function runWhatIfComparisons(
     if (isSolvent && testSim.summary.finalBalance >= bestEstateFinal) {
       bestEstateFinal = testSim.summary.finalBalance;
       bestEstateSim = testSim;
+      bestEstateConfig = cand;
       const growthDiff = bestEstateFinal - baselineSim.summary.finalBalance;
       if (growthDiff > 1000) {
         bestEstateDescription = `Maximizes legacy wealth by sequencing taxable assets first and letting Roth compound 100% tax-free, boosting final estate net worth by $${Math.round(growthDiff).toLocaleString()}.`;
@@ -320,6 +323,11 @@ export function runWhatIfComparisons(
     creditAccountId: config.acaOptimization?.creditAccountId,
   };
 
+  const acaAppliedConfig: PlannerConfig = {
+    ...config,
+    acaOptimization: acaTestConfig,
+  };
+
   const acaSim = runSimulation(config, stressPreset, undefined, undefined, acaTestConfig);
   const acaPeakRmd = Math.max(0, ...acaSim.years.map(y => y.rmdTotal || 0));
   const totalSubsidiesSaved = acaSim.summary.totalAcaSubsidiesSaved ?? 0;
@@ -333,6 +341,7 @@ export function runWhatIfComparisons(
     {
       id: 'baseline',
       name: 'Baseline Strategy',
+      shortName: 'Baseline',
       description: 'Your currently configured source priorities, tax brackets, and withdrawal rules.',
       summary: baselineSim.summary,
       years: baselineSim.years,
@@ -340,10 +349,12 @@ export function runWhatIfComparisons(
       finalBalance: baselineSim.summary.finalBalance,
       peakRmd: baselinePeakRmd,
       maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      appliedConfig: config,
     },
     {
       id: 'acaSubsidy',
-      name: '1) ACA Health Subsidy',
+      name: 'ACA Health Subsidy',
+      shortName: 'ACA Subsidy',
       description: acaDescription,
       summary: acaSim.summary,
       years: acaSim.years,
@@ -351,10 +362,12 @@ export function runWhatIfComparisons(
       finalBalance: acaSim.summary.finalBalance,
       peakRmd: acaPeakRmd,
       maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      appliedConfig: acaAppliedConfig,
     },
     {
       id: 'minTax',
-      name: '2) Minimize Lifetime Tax',
+      name: 'Minimize Lifetime Tax',
+      shortName: 'Min Tax',
       description: bestTaxDescription,
       summary: taxSim.summary,
       years: taxSim.years,
@@ -362,10 +375,12 @@ export function runWhatIfComparisons(
       finalBalance: taxSim.summary.finalBalance,
       peakRmd: taxPeakRmd,
       maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      appliedConfig: bestTaxConfig,
     },
     {
       id: 'minRmd',
-      name: '3) Minimize Future RMD',
+      name: 'Minimize Future RMD',
+      shortName: 'Min RMD',
       description: bestRmdDescription,
       summary: rmdSim.summary,
       years: rmdSim.years,
@@ -373,10 +388,12 @@ export function runWhatIfComparisons(
       finalBalance: rmdSim.summary.finalBalance,
       peakRmd: rmdPeakRmd,
       maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      appliedConfig: bestRmdConfig,
     },
     {
       id: 'maxSpending',
-      name: '4) Maximize Lifetime Spending',
+      name: 'Maximize Lifetime Spending',
+      shortName: 'Max Spend',
       description: spendDescription,
       summary: maxSpendSim.summary,
       years: maxSpendSim.years,
@@ -384,10 +401,12 @@ export function runWhatIfComparisons(
       finalBalance: maxSpendSim.summary.finalBalance,
       peakRmd: maxSpendPeakRmd,
       maxSustainableAnnualExpense: config.expenses.expDaily * 12 * bestSpendMult,
+      appliedConfig: maxSpendConfig,
     },
     {
       id: 'maxEstate',
-      name: '5) Maximize Estate Net Worth',
+      name: 'Maximize Estate Net Worth',
+      shortName: 'Max Estate',
       description: bestEstateDescription,
       summary: estateSim.summary,
       years: estateSim.years,
@@ -395,7 +414,7 @@ export function runWhatIfComparisons(
       finalBalance: estateSim.summary.finalBalance,
       peakRmd: estatePeakRmd,
       maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      appliedConfig: bestEstateConfig,
     },
   ];
 }
-

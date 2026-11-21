@@ -8,21 +8,23 @@ interface PlanTableProps {
   years: YearSimulationResult[];
   config: PlannerConfig;
   dollarMode?: DollarDisplayMode;
-  onDollarModeChange?: (mode: DollarDisplayMode) => void;
 }
+
+type ColumnPreset = 'cashflow' | 'taxes' | 'full';
 
 export const PlanTable: React.FC<PlanTableProps> = ({
   years,
   config,
   dollarMode = 'nominal',
-  onDollarModeChange,
 }) => {
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [filterPhase, setFilterPhase] = useState<string>('all');
+  const [columnPreset, setColumnPreset] = useState<ColumnPreset>('cashflow');
 
   const hasSpouse = Boolean(config.scenario?.hasSpouse);
   const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
   const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
+  const rmdAge = config.milestones.rmdAge ?? 73;
 
   const toggleExpand = (yr: number) => {
     setExpandedYear(expandedYear === yr ? null : yr);
@@ -40,623 +42,453 @@ export const PlanTable: React.FC<PlanTableProps> = ({
     return y.phase.toString() === filterPhase;
   });
 
+  const showSalary = columnPreset === 'cashflow' || columnPreset === 'full';
+  const showGuar = columnPreset === 'cashflow' || columnPreset === 'full';
+  const showRmd = columnPreset === 'taxes' || columnPreset === 'full';
+  const showTaxBreakdown = columnPreset === 'taxes' || columnPreset === 'full';
+  const showEventsCol = columnPreset === 'cashflow' || columnPreset === 'full';
+
+  const visibleColCount =
+    5 + // Expand, Year, Age, Phase, End Balance, Status -> actually count precisely below
+    (hasSpouse ? 1 : 0) +
+    (showSalary ? 1 : 0) +
+    (showGuar ? 1 : 0) +
+    (showRmd ? 1 : 0) +
+    1 + // Withdrawals
+    1 + // Expenses
+    (showTaxBreakdown ? 3 : 0) +
+    1 + // Total Tax
+    (showEventsCol ? 1 : 0) +
+    1; // Status
+
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-      <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/70">
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      {/* Header & Controls */}
+      <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-bold text-slate-900">Year-by-Year Simulation Table</h2>
-            <span className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-medium">
-              {dollarMode === 'real' ? "Real ($) Today's Value" : 'Nominal ($) Future Dollars'}
-            </span>
-          </div>
-          <p className="text-xs text-slate-500">
-            Interactive breakdown matching the Excel Plan worksheet formulas & liquidation priority cascade.
+          <h2 className="text-sm font-bold text-slate-900">
+            Year-by-Year Simulation Ledger
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {dollarMode === 'real' ? "Real (Today's Purchasing Power)" : 'Nominal Future Dollars'} · Select any row to inspect account-by-account liquidation and tax details.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap text-xs">
-          {/* Dollar Mode Toggle */}
-          <div className="inline-flex items-center bg-white p-0.5 rounded-lg border border-slate-300 shadow-2xs">
-            <button
-              onClick={() => onDollarModeChange && onDollarModeChange('nominal')}
-              className={`px-2 py-1 rounded text-xs transition-all ${
-                dollarMode === 'nominal'
-                  ? 'bg-slate-800 text-white font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Nominal $
-            </button>
-            <button
-              onClick={() => onDollarModeChange && onDollarModeChange('real')}
-              className={`px-2 py-1 rounded text-xs transition-all ${
-                dollarMode === 'real'
-                  ? 'bg-emerald-700 text-white font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Real (Today's $)
-            </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Column Preset Switcher */}
+          <div className="inline-flex items-center bg-slate-100 p-1 rounded-lg">
+            {(
+              [
+                { id: 'cashflow', label: 'Cash Flow' },
+                { id: 'taxes', label: 'Taxes & RMDs' },
+                { id: 'full', label: 'Full Ledger' },
+              ] as const
+            ).map(preset => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => setColumnPreset(preset.id)}
+                className={`px-3 py-1.5 min-h-[34px] rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                  columnPreset === preset.id
+                    ? 'bg-white text-slate-900 font-semibold shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
           </div>
 
-          <label className="text-slate-600 font-medium">Filter Phase:</label>
+          {/* Phase Filter */}
           <select
+            aria-label="Filter by retirement phase"
             value={filterPhase}
             onChange={e => setFilterPhase(e.target.value)}
-            className="border border-slate-300 rounded-md px-2.5 py-1 text-slate-800 bg-white shadow-2xs focus:outline-emerald-500"
+            className="min-h-[38px] border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700 bg-white focus:border-emerald-600 focus:outline-none"
           >
             <option value="all">All Years ({years.length})</option>
-            <option value="0">Phase 0: Retirement Year Proration</option>
-            <option value="1">Phase 1: Pre-Milestones (Early Retirement)</option>
-            <option value="2">Phase 2: 401(k) Access (Rule of 55 / Age {config.milestones.four01kAge ?? 55}+)</option>
-            <option value="3">Phase 3: IRA Access (Age {config.milestones.iraAge ?? 60}+)</option>
-            <option value="4">Phase 4: SS & Medicare (Age {config.milestones.ssMinAge}–{config.milestones.medicareAge}+)</option>
-            <option value="5">Phase 5: RMD Mandate (Age {config.milestones.rmdAge}+)</option>
+            <option value="0">Phase 0: Retirement Year</option>
+            <option value="1">Phase 1: Early Retirement</option>
+            <option value="2">Phase 2: 401(k) Access ({config.milestones.four01kAge ?? 55}+)</option>
+            <option value="3">Phase 3: IRA Access ({config.milestones.iraAge ?? 60}+)</option>
+            <option value="4">Phase 4: SS &amp; Medicare</option>
+            <option value="5">Phase 5: RMD Mandate ({rmdAge}+)</option>
             <option value="depleted">Depleted Years Only</option>
           </select>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* Scrollable Table with Sticky Header & Sticky Left Year Column */}
+      <div className="overflow-auto max-h-[68vh]">
         <table className="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
-              <th className="py-3 px-3 w-8"></th>
-              <th className="py-3 px-3">Year</th>
-              <th className="py-3 px-3">{hasSpouse ? `${primaryName} Age` : 'Age'}</th>
-              {hasSpouse && <th className="py-3 px-3">{spouseName} Age</th>}
-              <th className="py-3 px-3">Phase</th>
-              <th className="py-3 px-3 text-right">Salary</th>
-              <th className="py-3 px-3 text-right">Guar. Income</th>
-              <th className="py-3 px-3 text-right">Mandated RMD</th>
-              <th className="py-3 px-3 text-right">Withdrawals</th>
-              <th className="py-3 px-3 text-right">Expenses</th>
-              <th className="py-3 px-3 text-right">Federal Tax</th>
-              <th className="py-3 px-3 text-right">State Tax</th>
-              <th className="py-3 px-3 text-right">Cap Gain Tax</th>
-              <th className="py-3 px-3 text-right">Total Tax</th>
-              <th className="py-3 px-3 text-right font-bold">End Balance</th>
-              <th className="py-3 px-3 text-center">Status</th>
+          <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200">
+            <tr className="text-slate-500 font-semibold text-[11px]">
+              <th className="py-3 px-3 w-9 sticky left-0 z-30 bg-slate-50"></th>
+              <th className="py-3 px-3 sticky left-9 z-30 bg-slate-50 border-r border-slate-200/80 whitespace-nowrap">
+                Year
+              </th>
+              <th className="py-3 px-3 whitespace-nowrap">{hasSpouse ? `${primaryName}` : 'Age'}</th>
+              {hasSpouse && <th className="py-3 px-3 whitespace-nowrap">{spouseName}</th>}
+              <th className="py-3 px-3 whitespace-nowrap">Phase</th>
+              {showSalary && <th className="py-3 px-3 text-right whitespace-nowrap">Salary</th>}
+              {showGuar && <th className="py-3 px-3 text-right whitespace-nowrap">Guaranteed</th>}
+              {showRmd && <th className="py-3 px-3 text-right whitespace-nowrap">Mandated RMD</th>}
+              <th className="py-3 px-3 text-right whitespace-nowrap">Withdrawals</th>
+              <th className="py-3 px-3 text-right whitespace-nowrap">Expenses</th>
+              {showTaxBreakdown && (
+                <>
+                  <th className="py-3 px-3 text-right whitespace-nowrap">Fed Tax</th>
+                  <th className="py-3 px-3 text-right whitespace-nowrap">State Tax</th>
+                  <th className="py-3 px-3 text-right whitespace-nowrap">Cap Gain</th>
+                </>
+              )}
+              <th className="py-3 px-3 text-right whitespace-nowrap">Total Tax</th>
+              {showEventsCol && <th className="py-3 px-3 whitespace-nowrap">Events</th>}
+              <th className="py-3 px-3 text-right font-bold text-slate-800 whitespace-nowrap">End Balance</th>
+              <th className="py-3 px-3 text-right whitespace-nowrap">Status</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 font-mono">
-            {filteredYears.map(y => {
-              const isExpanded = expandedYear === y.yr;
-              const deflator = getDeflator(y.yr, y.cumGeneralInflation);
 
-              const salaryAdj = y.salary / deflator;
-              const guarAdj = y.guarTotal / deflator;
-              const wdAdj = y.wdTotal / deflator;
-              const expAdj = y.expenses / deflator;
-              const fedTaxAdj = y.fedTax / deflator;
-              const stateTaxAdj = y.stateTax / deflator;
-              const capGainTaxAdj = y.capGainTax / deflator;
-              const totalTaxAdj = y.totalTax / deflator;
-              const endBalAdj = y.combEndBal / deflator;
+          <tbody className="divide-y divide-slate-100">
+            {filteredYears.length === 0 ? (
+              <tr>
+                <td colSpan={visibleColCount} className="py-12 text-center text-slate-500 text-sm">
+                  No years match this phase filter.
+                </td>
+              </tr>
+            ) : (
+              filteredYears.map(y => {
+                const isExpanded = expandedYear === y.yr;
+                const deflator = getDeflator(y.yr, y.cumGeneralInflation);
 
-              return (
-                <React.Fragment key={y.yr}>
-                  <tr
-                    onClick={() => toggleExpand(y.yr)}
-                    className={`cursor-pointer transition-colors hover:bg-slate-50/80 ${
-                      y.depleted
-                        ? 'bg-red-50/40 text-red-950 font-semibold'
-                        : isExpanded
-                        ? 'bg-emerald-50/30'
-                        : ''
-                    }`}
-                  >
-                    <td className="py-2.5 px-3 text-center text-slate-400">
-                      {isExpanded ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 font-semibold text-slate-900 font-sans">{y.calYear}</td>
-                    <td className="py-2.5 px-3 text-slate-600 font-sans">{y.age.toFixed(1)}</td>
-                    {hasSpouse && (
-                      <td className="py-2.5 px-3 text-slate-600 font-sans">
-                        {y.spouseAge !== undefined ? y.spouseAge.toFixed(1) : '—'}
-                      </td>
-                    )}
-                    <td className="py-2.5 px-3 font-sans">
-                      <span
-                        className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                          y.phase === 0
-                            ? 'bg-amber-100 text-amber-800'
-                            : y.phase === 1
-                            ? 'bg-blue-100 text-blue-800'
-                            : y.phase === 2
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : y.phase === 3
-                            ? 'bg-indigo-100 text-indigo-800'
-                            : y.phase === 4
-                            ? 'bg-sky-100 text-sky-800'
-                            : 'bg-purple-100 text-purple-800'
-                        }`}
-                      >
-                        Phase {y.phase}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-600">
-                      {salaryAdj > 0 ? formatCurrency(salaryAdj) : '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-emerald-700">
-                      {guarAdj > 0 ? formatCurrency(guarAdj) : '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      {(y.rmdTotal || 0) > 0 ? (
-                        <div>
-                          <div className="text-amber-700 font-bold">{formatCurrency((y.rmdTotal || 0) / deflator)}</div>
-                          {y.rmdDivisor && (
-                            <div className="text-[10px] font-sans text-amber-600">Div: {y.rmdDivisor}</div>
-                          )}
-                        </div>
-                      ) : y.age >= (config.milestones.rmdAge ?? 73) || (hasSpouse && (y.spouseAge ?? 0) >= (config.milestones.rmdAge ?? 73)) ? (
-                        <div>
-                          <div className="text-slate-400">$0</div>
-                          <div className="text-[9px] font-sans text-slate-400" title="Pre-tax 401(k)/IRA accounts have $0 remaining balance">(Pre-tax $0)</div>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-indigo-700 font-medium">
-                      <div>{formatCurrency(wdAdj)}</div>
-                      {y.rmdTotal !== undefined && y.rmdTotal > 0 && (
-                        <div className="text-[10px] font-sans font-medium text-amber-800 bg-amber-50 rounded px-1 inline-block mt-0.5" title={`Mandated IRS RMD: ${formatCurrency(y.rmdTotal / deflator)}`}>
-                          RMD: {formatCurrency(y.rmdTotal / deflator)}
-                        </div>
-                      )}
-                      {y.rothConvertedAmount !== undefined && y.rothConvertedAmount > 0 && (
-                        <div className="text-[10px] font-sans font-medium text-purple-800 bg-purple-50 rounded px-1 inline-block mt-0.5 ml-1" title={`Systematic Roth Conversion: ${formatCurrency(y.rothConvertedAmount / deflator)}`}>
-                          Roth: {formatCurrency(y.rothConvertedAmount / deflator)}
-                        </div>
-                      )}
-                      {y.isAcaApplicable && y.acaQualified && (y.acaSubsidySavings || 0) > 0 && (
-                        <div className="text-[10px] font-sans font-medium text-emerald-800 bg-emerald-50 rounded px-1 inline-block mt-0.5 ml-1" title={`ACA Subsidy Qualified! MAGI: ${formatCurrency((y.acaMagi || 0) / deflator)} <= ${formatCurrency((y.acaTargetLimit || 0) / deflator)}`}>
-                          ACA: +{formatCurrency((y.acaSubsidySavings || 0) / deflator)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-900">
-                      <div>{formatCurrency(expAdj)}</div>
-                      <div className="flex flex-col items-end gap-0.5 mt-0.5">
-                        {y.majorExpenses !== undefined && y.majorExpenses > 0 && (
-                          <div
-                            className="text-[10px] font-sans font-semibold text-amber-800 bg-amber-100/90 rounded px-1 inline-block"
-                            title={`Major Expense: ${y.majorExpensesList?.map(m => `${m.name} (${formatCurrency(m.amount / deflator)})`).join(', ') || formatCurrency(y.majorExpenses / deflator)}`}
-                          >
-                            ⭐ Major: +{formatCurrency(y.majorExpenses / deflator)}
-                          </div>
-                        )}
-                        {y.medicalExpenses !== undefined && (
-                          <div className="text-[10px] font-sans text-slate-400" title={`General: ${formatCurrency((y.generalExpenses || 0) / deflator)} | Healthcare: ${formatCurrency(y.medicalExpenses / deflator)}`}>
-                            Med: {formatCurrency(y.medicalExpenses / deflator)}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-600">
-                      {formatCurrency(fedTaxAdj)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-600">
-                      {formatCurrency(stateTaxAdj)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-600">
-                      {formatCurrency(capGainTaxAdj)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-slate-800">
-                      {formatCurrency(totalTaxAdj)}
-                    </td>
-                    <td
-                      className={`py-2.5 px-3 text-right font-bold ${
-                        y.combEndBal <= 0 ? 'text-red-600' : 'text-slate-900'
+                const salaryAdj = y.salary / deflator;
+                const guarAdj = y.guarTotal / deflator;
+                const rmdAdj = (y.rmdTotal || 0) / deflator;
+                const wdAdj = y.wdTotal / deflator;
+                const expAdj = y.expenses / deflator;
+                const fedTaxAdj = y.fedTax / deflator;
+                const stateTaxAdj = y.stateTax / deflator;
+                const capGainTaxAdj = y.capGainTax / deflator;
+                const totalTaxAdj = y.totalTax / deflator;
+                const endBalAdj = y.combEndBal / deflator;
+
+                const eventTags: string[] = [];
+                if ((y.rmdTotal || 0) > 0) eventTags.push('RMD');
+                if ((y.rothConvertedAmount || 0) > 0) eventTags.push('Roth');
+                if (y.isAcaApplicable && y.acaQualified && (y.acaSubsidySavings || 0) > 0) eventTags.push('ACA');
+                if ((y.majorExpenses || 0) > 0) eventTags.push('Major');
+
+                const stickyBg = y.depleted
+                  ? 'bg-rose-50'
+                  : isExpanded
+                  ? 'bg-emerald-50'
+                  : 'bg-white group-hover:bg-slate-50';
+
+                return (
+                  <React.Fragment key={y.yr}>
+                    <tr
+                      onClick={() => toggleExpand(y.yr)}
+                      className={`group cursor-pointer transition-colors ${
+                        y.depleted
+                          ? 'bg-rose-50/70 text-rose-950'
+                          : isExpanded
+                          ? 'bg-emerald-50/50'
+                          : 'hover:bg-slate-50'
                       }`}
                     >
-                      {formatCurrency(endBalAdj)}
-                    </td>
-                    <td className="py-2.5 px-3 text-center font-sans">
-                      {y.depleted ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
-                          <AlertCircle className="w-3 h-3" />
-                          DEPLETED
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-                          <CheckCircle2 className="w-3 h-3" />
-                          OK
-                        </span>
+                      <td className={`py-2.5 px-2 text-center sticky left-0 z-10 ${stickyBg}`}>
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            toggleExpand(y.yr);
+                          }}
+                          aria-expanded={isExpanded}
+                          aria-label={`Toggle details for year ${y.calYear}`}
+                          className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </td>
+                      <td
+                        className={`py-2.5 px-3 font-semibold text-slate-900 tabular-nums whitespace-nowrap sticky left-9 z-10 border-r border-slate-100 ${stickyBg}`}
+                      >
+                        {y.calYear}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600 tabular-nums whitespace-nowrap">
+                        {y.age.toFixed(1)}
+                      </td>
+                      {hasSpouse && (
+                        <td className="py-2.5 px-3 text-slate-600 tabular-nums whitespace-nowrap">
+                          {y.spouseAge !== undefined ? y.spouseAge.toFixed(1) : '—'}
+                        </td>
                       )}
-                    </td>
-                  </tr>
+                      <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                        P{y.phase}
+                      </td>
+                      {showSalary && (
+                        <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600 whitespace-nowrap">
+                          {salaryAdj > 0 ? formatCurrency(salaryAdj) : '—'}
+                        </td>
+                      )}
+                      {showGuar && (
+                        <td className="py-2.5 px-3 text-right font-mono tabular-nums text-emerald-700 whitespace-nowrap">
+                          {guarAdj > 0 ? formatCurrency(guarAdj) : '—'}
+                        </td>
+                      )}
+                      {showRmd && (
+                        <td className="py-2.5 px-3 text-right font-mono tabular-nums whitespace-nowrap">
+                          {rmdAdj > 0 ? (
+                            <span className="text-amber-700 font-semibold">{formatCurrency(rmdAdj)}</span>
+                          ) : y.age >= rmdAge || (hasSpouse && (y.spouseAge ?? 0) >= rmdAge) ? (
+                            <span className="text-slate-400">$0</span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                      )}
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-900 font-medium whitespace-nowrap">
+                        {formatCurrency(wdAdj)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-700 whitespace-nowrap">
+                        {formatCurrency(expAdj)}
+                      </td>
+                      {showTaxBreakdown && (
+                        <>
+                          <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600 whitespace-nowrap">
+                            {formatCurrency(fedTaxAdj)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600 whitespace-nowrap">
+                            {formatCurrency(stateTaxAdj)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600 whitespace-nowrap">
+                            {formatCurrency(capGainTaxAdj)}
+                          </td>
+                        </>
+                      )}
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-800 font-medium whitespace-nowrap">
+                        {formatCurrency(totalTaxAdj)}
+                      </td>
+                      {showEventsCol && (
+                        <td className="py-2.5 px-3 text-[11px] text-slate-500 whitespace-nowrap">
+                          {eventTags.length > 0 ? eventTags.join(' · ') : '—'}
+                        </td>
+                      )}
+                      <td
+                        className={`py-2.5 px-3 text-right font-mono tabular-nums font-bold whitespace-nowrap ${
+                          y.combEndBal <= 0 ? 'text-rose-600' : 'text-slate-900'
+                        }`}
+                      >
+                        {formatCurrency(endBalAdj)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        {y.depleted ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            Depleted
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Funded
+                          </span>
+                        )}
+                      </td>
+                    </tr>
 
-                  {/* Expanded Detail Drawer */}
-                  {isExpanded && (
-                    <tr className="bg-slate-50 font-sans border-b border-slate-200">
-                      <td colSpan={hasSpouse ? 16 : 15} className="p-4">
-                        <div className="text-xs space-y-3">
-                          <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                            <span className="font-bold text-slate-800">
-                              Year {y.calYear} ({primaryName}: Age {y.age.toFixed(1)}
-                              {hasSpouse && y.spouseAge !== undefined ? ` • ${spouseName}: Age ${y.spouseAge.toFixed(1)}` : ''}) — Detailed Account Liquidation Cascade
-                            </span>
-                            <span className="text-slate-500">
-                              Taxable Income Target: {formatCurrency(y.taxTarget / deflator)} &bull; Non-Taxable Target: {formatCurrency(y.nonTaxTarget / deflator)}
-                            </span>
-                          </div>
-
-                          {/* Decoupled Expenses and RMD Surplus Banner */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                              <span className="text-[10px] uppercase font-bold text-slate-400 block">Decoupled Expenses</span>
-                              <div className="text-xs text-slate-700 mt-0.5 space-y-0.5">
-                                <div>General Living: <span className="font-semibold text-slate-900">{formatCurrency((y.generalExpenses || 0) / deflator)}</span></div>
-                                <div>Healthcare: <span className="font-semibold text-purple-700">{formatCurrency((y.medicalExpenses || 0) / deflator)}</span> {y.isMedicareActive ? '(Medicare Active)' : '(Pre-Medicare)'}</div>
-                                {y.majorExpenses !== undefined && y.majorExpenses > 0 && (
-                                  <div className="text-amber-800 font-semibold pt-0.5 border-t border-slate-100">
-                                    Major Expenses: +{formatCurrency(y.majorExpenses / deflator)}
-                                  </div>
-                                )}
+                    {/* Expanded Year Detail Inspector */}
+                    {isExpanded && (
+                      <tr className="bg-slate-50/90 border-b border-slate-200">
+                        <td colSpan={visibleColCount} className="p-4 sm:p-5">
+                          <div className="space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-slate-200">
+                              <div className="text-xs font-bold text-slate-900">
+                                Year {y.calYear} · {primaryName} Age {y.age.toFixed(1)}
+                                {hasSpouse && y.spouseAge !== undefined ? ` · ${spouseName} Age ${y.spouseAge.toFixed(1)}` : ''} · Phase {y.phase}
+                              </div>
+                              <div className="text-xs text-slate-500 tabular-nums">
+                                Expenses: General {formatCurrency((y.generalExpenses || 0) / deflator)} · Healthcare {formatCurrency((y.medicalExpenses || 0) / deflator)} {y.isMedicareActive ? '(Medicare)' : '(Pre-Medicare)'}
+                                {(y.majorExpenses || 0) > 0 && ` · Major +${formatCurrency((y.majorExpenses || 0) / deflator)}`}
                               </div>
                             </div>
 
-                            {y.majorExpenses !== undefined && y.majorExpenses > 0 && (
-                              <div className="bg-amber-50/80 p-2.5 rounded-lg border border-amber-200">
-                                <span className="text-[10px] uppercase font-bold text-amber-800 block">Scheduled Major Annual Expense(s)</span>
-                                <div className="text-xs text-amber-950 mt-0.5 space-y-1">
-                                  {y.majorExpensesList && y.majorExpensesList.length > 0 ? (
-                                    y.majorExpensesList.map((m, mIdx) => (
-                                      <div key={mIdx} className="flex items-center justify-between gap-2">
-                                        <span className="font-medium truncate">• {m.name}:</span>
-                                        <span className="font-bold shrink-0">{formatCurrency(m.amount / deflator)}</span>
-                                      </div>
-                                    ))
-                                  ) : (
-                                    <div className="font-bold">{formatCurrency(y.majorExpenses / deflator)}</div>
-                                  )}
-                                  <div className="text-[10px] text-amber-800 pt-1 border-t border-amber-200/60">
-                                    Liquidation priority cascade automatically drew additional funds to cover this expense.
-                                  </div>
+                            {/* Key Event Callouts (flat subtle strips, no nested card clutter) */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+                              {(y.majorExpenses || 0) > 0 && (
+                                <div className="p-3 rounded-lg bg-amber-50/70 border border-amber-200 space-y-1">
+                                  <div className="font-semibold text-amber-900">Scheduled Major Expenses</div>
+                                  {y.majorExpensesList?.map((m, idx) => (
+                                    <div key={idx} className="flex justify-between text-amber-950 tabular-nums">
+                                      <span className="truncate">{m.name}</span>
+                                      <span className="font-mono font-semibold">{formatCurrency(m.amount / deflator)}</span>
+                                    </div>
+                                  ))}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {y.isSynchronizedTdActive && y.tdWithdrawalByOwner && (
-                              <div className="bg-emerald-50/80 p-2.5 rounded-lg border border-emerald-200">
-                                <span className="text-[10px] uppercase font-bold text-emerald-800 block">Synchronized Pre-Tax Drawdown</span>
-                                <div className="text-xs text-emerald-900 mt-0.5 space-y-0.5">
-                                  <div className="font-semibold text-emerald-950">Pre-tax accounts drawing in tandem:</div>
-                                  <div className="flex items-center gap-2">
-                                    <span>{primaryName}: <strong>{formatCurrency(y.tdWithdrawalByOwner.primary / deflator)}</strong></span>
-                                    <span>•</span>
-                                    <span>{spouseName}: <strong>{formatCurrency(y.tdWithdrawalByOwner.spouse / deflator)}</strong></span>
-                                  </div>
-                                  <div className="text-[10px] text-emerald-700">Early depletion slashes future RMD exposure.</div>
-                                </div>
-                              </div>
-                            )}
-
-                            {((y.rmdTotal !== undefined && y.rmdTotal > 0) ||
-                              y.age >= (config.milestones.rmdAge ?? 73) ||
-                              (hasSpouse && (y.spouseAge ?? 0) >= (config.milestones.rmdAge ?? 73))) && (
-                              <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200">
-                                <span className="text-[10px] uppercase font-bold text-amber-800 block">
-                                  IRS RMD (Age {config.milestones.rmdAge ?? 73}+)
-                                </span>
-                                <div className="text-xs text-amber-900 mt-0.5 space-y-0.5">
-                                  <div>
-                                    Mandated RMD:{' '}
-                                    <span className="font-bold">
-                                      {formatCurrency((y.rmdTotal || 0) / deflator)}
+                              {((y.rmdTotal || 0) > 0 || y.age >= rmdAge || (hasSpouse && (y.spouseAge ?? 0) >= rmdAge)) && (
+                                <div className="p-3 rounded-lg bg-white border border-slate-200 space-y-1">
+                                  <div className="font-semibold text-slate-900">IRS RMD Summary</div>
+                                  <div className="flex justify-between text-slate-700 tabular-nums">
+                                    <span>Mandated RMD{y.rmdDivisor ? ` (Div ${y.rmdDivisor})` : ''}</span>
+                                    <span className="font-mono font-semibold text-amber-700">
+                                      {formatCurrency(rmdAdj)}
                                     </span>
-                                    {y.rmdDivisor ? ` (Divisor: ${y.rmdDivisor})` : ''}
                                   </div>
-                                  {(y.rmdTotal || 0) > 0 ? (
-                                    <>
-                                      {y.rmdBySource && Object.keys(y.rmdBySource).length > 0 && (
-                                        <div className="text-[10px] text-amber-800 space-y-0.5 pt-0.5">
-                                          {config.sources
-                                            .filter(s => (y.rmdBySource?.[s.id] || 0) > 0)
-                                            .map(s => (
-                                              <div key={s.id} className="flex justify-between">
-                                                <span>• {s.name}:</span>
-                                                <span className="font-semibold">
-                                                  {formatCurrency((y.rmdBySource?.[s.id] || 0) / deflator)}
-                                                </span>
-                                              </div>
-                                            ))}
-                                        </div>
-                                      )}
-                                      {y.rmdSurplusGross !== undefined && y.rmdSurplusGross > 0 ? (
-                                        <div className="text-emerald-700 font-medium pt-0.5">
-                                          Surplus {formatCurrency(y.rmdSurplusGross / deflator)} →{' '}
-                                          <span className="font-bold">
-                                            {formatCurrency((y.rmdSurplusReinvested || 0) / deflator)}
-                                          </span>{' '}
-                                          net redirected to Brokerage
-                                        </div>
-                                      ) : (
-                                        <div className="text-slate-500 text-[10px] pt-0.5">
-                                          Fully absorbed by living expense withdrawals
-                                        </div>
-                                      )}
-                                    </>
+                                  {(y.rmdSurplusGross || 0) > 0 ? (
+                                    <div className="text-[11px] text-emerald-700 tabular-nums">
+                                      Surplus {formatCurrency((y.rmdSurplusReinvested || 0) / deflator)} net reinvested to brokerage
+                                    </div>
                                   ) : (
-                                    <div className="text-slate-500 text-[10px]">
-                                      All tax-deferred 401(k)/IRA accounts have $0 beginning balance — no RMD required.
+                                    <div className="text-[11px] text-slate-500">
+                                      {(y.rmdTotal || 0) > 0
+                                        ? 'Fully absorbed by annual living withdrawals'
+                                        : 'Pre-tax accounts at $0 beginning balance'}
                                     </div>
                                   )}
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {y.rothConvertedAmount !== undefined && y.rothConvertedAmount > 0 && (
-                              <div className="bg-purple-50/70 p-2.5 rounded-lg border border-purple-200">
-                                <span className="text-[10px] uppercase font-bold text-purple-800 block">
-                                  Roth Conversion Strategy {hasSpouse ? '(Equal 50/50 Split)' : ''}
-                                </span>
-                                <div className="text-xs text-purple-900 mt-0.5 space-y-0.5">
-                                  <div>
-                                    Total Converted:{' '}
-                                    <span className="font-bold">
-                                      {formatCurrency(y.rothConvertedAmount / deflator)}
+                              {(y.rothConvertedAmount || 0) > 0 && (
+                                <div className="p-3 rounded-lg bg-white border border-slate-200 space-y-1">
+                                  <div className="font-semibold text-slate-900">Systematic Roth Conversion</div>
+                                  <div className="flex justify-between tabular-nums">
+                                    <span className="text-slate-600">Converted</span>
+                                    <span className="font-mono font-semibold text-emerald-700">
+                                      {formatCurrency((y.rothConvertedAmount || 0) / deflator)}
                                     </span>
                                   </div>
-                                  {hasSpouse && y.rothConversionByOwner && (
-                                    <div className="text-[11px] text-purple-800 space-y-0.5 pt-0.5 border-t border-purple-200/60">
-                                      <div className="flex justify-between gap-2">
-                                        <span>
-                                          • {primaryName} &rarr; {y.primaryRothAccountName || 'Roth'}:
-                                        </span>
-                                        <span className="font-semibold">
-                                          {formatCurrency(y.rothConversionByOwner.primary / deflator)}
-                                        </span>
-                                      </div>
-                                      <div className="flex justify-between gap-2">
-                                        <span>
-                                          • {spouseName} &rarr; {y.spouseRothAccountName || 'Roth'}:
-                                        </span>
-                                        <span className="font-semibold">
-                                          {formatCurrency(y.rothConversionByOwner.spouse / deflator)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <div className="pt-0.5">
-                                    Conversion Tax:{' '}
-                                    <span className="font-semibold text-rose-600">
+                                  <div className="flex justify-between tabular-nums">
+                                    <span className="text-slate-600">Conversion Tax</span>
+                                    <span className="font-mono text-rose-600">
                                       {formatCurrency((y.rothConversionTax || 0) / deflator)}
                                     </span>
                                   </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
 
-                            {y.isAcaApplicable && (
-                              <div
-                                className={`p-2.5 rounded-lg border ${
-                                  y.acaQualified
-                                    ? 'bg-emerald-50/80 border-emerald-300'
-                                    : 'bg-amber-50/80 border-amber-300'
-                                }`}
-                              >
-                                <span className="text-[10px] uppercase font-bold text-emerald-800 block">
-                                  ACA Healthcare Subsidy (Pre-Medicare)
-                                </span>
-                                <div className="text-xs text-slate-800 mt-0.5 space-y-0.5">
-                                  <div className="flex justify-between">
-                                    <span>Household ACA MAGI:</span>
-                                    <strong className={y.acaQualified ? 'text-emerald-700' : 'text-amber-800'}>
-                                      {formatCurrency((y.acaMagi || 0) / deflator)}
-                                    </strong>
+                              {y.isAcaApplicable && (
+                                <div className="p-3 rounded-lg bg-white border border-slate-200 space-y-1">
+                                  <div className="font-semibold text-slate-900">ACA Subsidy Bridge</div>
+                                  <div className="flex justify-between tabular-nums">
+                                    <span className="text-slate-600">Household MAGI / Limit</span>
+                                    <span className="font-mono font-semibold">
+                                      {formatCurrency((y.acaMagi || 0) / deflator)} / {formatCurrency((y.acaTargetLimit || 0) / deflator)}
+                                    </span>
                                   </div>
-                                  <div className="flex justify-between text-slate-500 text-[11px]">
-                                    <span>Target Limit:</span>
-                                    <span>{formatCurrency((y.acaTargetLimit || 0) / deflator)}</span>
-                                  </div>
-                                  <div className="flex justify-between pt-1 border-t border-slate-200/60 font-semibold">
-                                    <span>Annual Subsidy Credit:</span>
-                                    <span className={y.acaQualified ? 'text-emerald-600' : 'text-slate-500'}>
+                                  <div className="flex justify-between tabular-nums">
+                                    <span className="text-slate-600">Annual Subsidy Credit</span>
+                                    <span className={`font-mono font-semibold ${y.acaQualified ? 'text-emerald-700' : 'text-slate-500'}`}>
                                       {y.acaQualified && (y.acaSubsidySavings || 0) > 0
                                         ? `+${formatCurrency((y.acaSubsidySavings || 0) / deflator)}`
                                         : '$0 (Over limit)'}
                                     </span>
                                   </div>
-                                  {y.acaQualified && (y.acaSubsidySavings || 0) > 0 && (
-                                    <div className="flex justify-between text-[11px] text-slate-600">
-                                      <span>Credited Back To:</span>
-                                      {y.acaCreditAccountName && (y.acaCreditedAmount || 0) > 0 ? (
-                                        <strong className="text-emerald-700">
-                                          +{formatCurrency((y.acaCreditedAmount || 0) / deflator)} &rarr; {y.acaCreditAccountName}
-                                        </strong>
-                                      ) : (
-                                        <span className="text-slate-400 italic">Not credited (disabled in ACA settings)</span>
-                                      )}
-                                    </div>
-                                  )}
-                                  {y.acaNonAgiWdUsed !== undefined && y.acaNonAgiWdUsed > 0 && (
-                                    <div className="text-[10px] text-emerald-700 pt-0.5">
-                                      Shielded {formatCurrency(y.acaNonAgiWdUsed / deflator)} via Cash/Roth Non-AGI bridge.
-                                    </div>
-                                  )}
-                                  {y.isPhase0AcaIncomeOverride && (
-                                    <div className="bg-amber-100/90 text-amber-900 border border-amber-300 rounded p-1.5 text-[10px] mt-1 font-medium">
-                                      ⚡ <strong>Phase 0 Transition Logic:</strong> Earned wages and required living withdrawals exceeded the ACA limit. High-priority tax-deferred accounts were drawn for living income, preserving Cash & Roth reserves for future subsidy years.
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Depleting Assets breakdown */}
-                            <div className="bg-white p-3 rounded-lg border border-slate-200">
-                              <h4 className="font-semibold text-slate-800 mb-2">
-                                Depleting Accounts (Liquidation Priority)
-                              </h4>
-                              <div className="space-y-1.5">
-                                {config.sources
-                                  .filter(s => s.monthly === 'N')
-                                  .sort((a, b) => a.priority - b.priority)
-                                  .map(s => {
-                                    const beg = (y.beginBalanceBySource[s.id] || 0) / deflator;
-                                    const wd = (y.withdrawalsBySource[s.id] || 0) / deflator;
-                                    const end = (y.endBalanceBySource[s.id] || 0) / deflator;
-                                    const owner = s.owner || 'primary';
-                                    const isAccessible = isSourceAccessible(s, y.age, y.spouseAge, config.milestones, hasSpouse);
-                                    const penaltyFreeAge = getSourcePenaltyFreeAge(s, config.milestones, owner === 'spouse');
-
-                                    return (
-                                      <div
-                                        key={s.id}
-                                        className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100 last:border-0"
-                                      >
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-[9px]">
-                                            {s.priority}
-                                          </span>
-                                          <span className="font-medium text-slate-800">{s.name}</span>
-                                          {hasSpouse && (
-                                            <span className={`text-[9px] px-1 py-0.2 rounded font-medium ${
-                                              owner === 'spouse' ? 'bg-purple-50 text-purple-700' :
-                                              owner === 'joint' ? 'bg-indigo-50 text-indigo-700' :
-                                              'bg-blue-50 text-blue-700'
-                                            }`}>
-                                              {owner === 'spouse' ? spouseName : owner === 'joint' ? 'Joint' : primaryName}
-                                            </span>
-                                          )}
-                                          {!isAccessible ? (
-                                            <span className="text-[10px] text-amber-600 bg-amber-50 px-1 rounded">
-                                              Locked (penalty-free at age {penaltyFreeAge})
-                                            </span>
-                                          ) : (
-                                            (s.taxType === 'Income' || s.accountType === '401k' || s.accountType === 'ira') && (
-                                              <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 rounded font-medium">
-                                                Eligible (age {penaltyFreeAge}+)
-                                              </span>
-                                            )
-                                          )}
-                                        </div>
-                                        <div className="font-mono text-right space-x-2">
-                                          <span className="text-slate-500">Beg: {formatCurrency(beg)}</span>
-                                          {isTaxDeferredSource(s) && (y.rmdBySource?.[s.id] || 0) > 0 && (
-                                            <span
-                                              className="text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold"
-                                              title="IRS Required Minimum Distribution for this account"
-                                            >
-                                              RMD: {formatCurrency((y.rmdBySource?.[s.id] || 0) / deflator)}
-                                            </span>
-                                          )}
-                                          <span className={wd > 0 ? 'text-indigo-600 font-bold' : 'text-slate-400'}>
-                                            W/D: {wd > 0 ? formatCurrency(wd) : '$0'}
-                                          </span>
-                                          {(y.rothConvertedBySource?.[s.id] || 0) > 0 && (
-                                            <span
-                                              className="text-purple-800 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-bold"
-                                              title="Pre-tax balance converted to Roth IRA/401(k)"
-                                            >
-                                              Roth Conv: {formatCurrency((y.rothConvertedBySource?.[s.id] || 0) / deflator)}
-                                            </span>
-                                          )}
-                                          {(y.rothDepositBySource?.[s.id] || 0) > 0 && (
-                                            <span
-                                              className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold"
-                                              title="Converted Roth funds deposited into this account before annual return compounding"
-                                            >
-                                              +Roth Transfer: {formatCurrency((y.rothDepositBySource?.[s.id] || 0) / deflator)}
-                                            </span>
-                                          )}
-                                          {y.acaCreditAccountId === s.id && (y.acaCreditedAmount || 0) > 0 && (
-                                            <span
-                                              className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold"
-                                              title="ACA Healthcare Subsidy Credit deposited back into this account before annual return compounding"
-                                            >
-                                              +ACA Credit: {formatCurrency((y.acaCreditedAmount || 0) / deflator)}
-                                            </span>
-                                          )}
-                                          <span className="text-slate-800 font-medium">End: {formatCurrency(end)}</span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                              </div>
-                            </div>
-
-                            {/* Guaranteed Cashflows */}
-                            <div className="bg-white p-3 rounded-lg border border-slate-200">
-                              <h4 className="font-semibold text-slate-800 mb-2">
-                                Guaranteed Cash Flow Streams (Non-depleting)
-                              </h4>
-                              <div className="space-y-1.5">
-                                {config.sources
-                                  .filter(s => s.monthly === 'Y')
-                                  .map(s => {
-                                    const rawPayment = y.guaranteedBySource[s.id] || 0;
-                                    const payment = rawPayment / deflator;
-                                    const isActive = payment > 0;
-                                    const owner = s.owner || 'primary';
-
-                                    return (
-                                      <div
-                                        key={s.id}
-                                        className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100 last:border-0"
-                                      >
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="font-medium text-slate-800">{s.name}</span>
-                                          {hasSpouse && (
-                                            <span className={`text-[9px] px-1 py-0.2 rounded font-medium ${
-                                              owner === 'spouse' ? 'bg-purple-50 text-purple-700' :
-                                              owner === 'joint' ? 'bg-indigo-50 text-indigo-700' :
-                                              'bg-blue-50 text-blue-700'
-                                            }`}>
-                                              {owner === 'spouse' ? spouseName : owner === 'joint' ? 'Joint' : primaryName}
-                                            </span>
-                                          )}
-                                          <span className="text-slate-400 text-[10px]">
-                                            ({s.taxType}, starts {s.startAge})
-                                          </span>
-                                        </div>
-                                        <div className="font-mono text-right">
-                                          <span className={isActive ? 'text-emerald-700 font-bold' : 'text-slate-400'}>
-                                            {isActive ? `${formatCurrency(payment)}/yr` : 'Inactive'}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                              </div>
-                              {y.salary > 0 && (
-                                <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-[11px]">
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-medium text-slate-800">
-                                      Total Active Work Salary
-                                    </span>
-                                    <span className="font-mono font-bold text-amber-700">
-                                      {formatCurrency(y.salary / deflator)}
-                                    </span>
-                                  </div>
-                                  {hasSpouse && (
-                                    <div className="text-[10px] text-slate-500 flex justify-between">
-                                      <span>
-                                        {primaryName}: {formatCurrency((y.primarySalary || 0) / deflator)} | {spouseName}: {formatCurrency((y.spouseSalary || 0) / deflator)}
-                                      </span>
+                                  {y.acaCreditAccountName && (y.acaCreditedAmount || 0) > 0 && (
+                                    <div className="text-[11px] text-emerald-700">
+                                      Credited to {y.acaCreditAccountName}
                                     </div>
                                   )}
                                 </div>
                               )}
                             </div>
+
+                            {/* Account Liquidation & Cash Flow Tables */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                              <div>
+                                <h4 className="text-xs font-semibold text-slate-700 mb-2">
+                                  Depleting Accounts (By Priority)
+                                </h4>
+                                <div className="bg-white rounded-lg border border-slate-200 divide-y divide-slate-100">
+                                  {config.sources
+                                    .filter(s => s.monthly === 'N')
+                                    .sort((a, b) => a.priority - b.priority)
+                                    .map(s => {
+                                      const beg = (y.beginBalanceBySource[s.id] || 0) / deflator;
+                                      const wd = (y.withdrawalsBySource[s.id] || 0) / deflator;
+                                      const end = (y.endBalanceBySource[s.id] || 0) / deflator;
+                                      const owner = s.owner || 'primary';
+                                      const accessible = isSourceAccessible(s, y.age, y.spouseAge, config.milestones, hasSpouse);
+                                      const penaltyFreeAge = getSourcePenaltyFreeAge(s, config.milestones, owner === 'spouse');
+                                      const rmdAmt = (y.rmdBySource?.[s.id] || 0) / deflator;
+                                      const rothOut = (y.rothConvertedBySource?.[s.id] || 0) / deflator;
+                                      const rothIn = (y.rothDepositBySource?.[s.id] || 0) / deflator;
+
+                                      return (
+                                        <div key={s.id} className="px-3 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-[11px]">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <span className="text-slate-400 font-mono tabular-nums w-4">#{s.priority}</span>
+                                            <span className="font-medium text-slate-900 truncate">{s.name}</span>
+                                            {!accessible && (
+                                              <span className="text-amber-700 shrink-0">Locked &lt;{penaltyFreeAge}</span>
+                                            )}
+                                          </div>
+                                          <div className="font-mono tabular-nums flex items-center gap-3 flex-wrap text-slate-600 shrink-0">
+                                            <span>Beg {formatCurrency(beg)}</span>
+                                            {isTaxDeferredSource(s) && rmdAmt > 0 && (
+                                              <span className="text-amber-700 font-semibold">RMD {formatCurrency(rmdAmt)}</span>
+                                            )}
+                                            <span className={wd > 0 ? 'text-slate-900 font-semibold' : 'text-slate-400'}>
+                                              W/D {formatCurrency(wd)}
+                                            </span>
+                                            {rothOut > 0 && (
+                                              <span className="text-indigo-700">Conv -{formatCurrency(rothOut)}</span>
+                                            )}
+                                            {rothIn > 0 && (
+                                              <span className="text-emerald-700">+Roth {formatCurrency(rothIn)}</span>
+                                            )}
+                                            <span className="text-slate-900 font-semibold">End {formatCurrency(end)}</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              </div>
+
+                              <div>
+                                <h4 className="text-xs font-semibold text-slate-700 mb-2">
+                                  Guaranteed Income &amp; Earned Salary
+                                </h4>
+                                <div className="bg-white rounded-lg border border-slate-200 divide-y divide-slate-100">
+                                  {config.sources
+                                    .filter(s => s.monthly === 'Y')
+                                    .map(s => {
+                                      const payment = (y.guaranteedBySource[s.id] || 0) / deflator;
+                                      return (
+                                        <div key={s.id} className="px-3 py-2 flex items-center justify-between gap-2 text-[11px]">
+                                          <div className="text-slate-700 truncate">
+                                            <span className="font-medium text-slate-900">{s.name}</span>
+                                            <span className="text-slate-400 ml-1.5">starts age {s.startAge}</span>
+                                          </div>
+                                          <span className={`font-mono tabular-nums ${payment > 0 ? 'text-emerald-700 font-semibold' : 'text-slate-400'}`}>
+                                            {payment > 0 ? `${formatCurrency(payment)}/yr` : 'Inactive'}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  {y.salary > 0 && (
+                                    <div className="px-3 py-2 flex items-center justify-between gap-2 text-[11px] bg-slate-50/70">
+                                      <span className="font-medium text-slate-800">Active Work Salary</span>
+                                      <span className="font-mono tabular-nums font-semibold text-slate-900">
+                                        {formatCurrency(salaryAdj)}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              );
-            })}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>

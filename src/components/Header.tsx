@@ -1,161 +1,99 @@
 import React from 'react';
-import { Download, RotateCcw, DollarSign, BarChart3, Sliders, TableProperties, Sparkles, HeartPulse } from 'lucide-react';
-import { PlannerConfig, PlanSummary } from '../types';
+import { Download, Menu, FolderOpen } from 'lucide-react';
+import { PlannerConfig } from '../types';
+import { NavSection } from './Sidebar';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   config: PlannerConfig;
-  summary: PlanSummary;
-  activeTab: 'overview' | 'charts' | 'table' | 'roth' | 'aca' | 'whatif' | 'inputs';
-  setActiveTab: (tab: 'overview' | 'charts' | 'table' | 'roth' | 'aca' | 'whatif' | 'inputs') => void;
-  onReset: () => void;
+  activeSection: NavSection;
+  activeScenarioName: string | null;
+  onOpenMobileMenu: () => void;
+  onOpenScenarios: () => void;
   onExport: () => void;
 }
 
+const SECTION_META: Record<NavSection, { group: string; title: string }> = {
+  overview: { group: 'Analyze', title: 'Retirement Overview' },
+  charts: { group: 'Analyze', title: 'Charts & Monte Carlo' },
+  table: { group: 'Analyze', title: 'Year-by-Year Ledger' },
+  roth: { group: 'Optimize', title: 'Roth Conversions' },
+  aca: { group: 'Optimize', title: 'ACA Subsidy Bridge' },
+  whatif: { group: 'Optimize', title: 'What-If Optimization Lab' },
+  'inputs-sources': { group: 'Configure', title: 'Accounts & Income Sources' },
+  'inputs-scenario': { group: 'Configure', title: 'Household & Milestones' },
+  'inputs-expenses': { group: 'Configure', title: 'Expenses & Major Events' },
+  'inputs-rates': { group: 'Configure', title: 'Rates & Tax Assumptions' },
+};
+
 export const Header: React.FC<HeaderProps> = ({
   config,
-  activeTab,
-  setActiveTab,
-  onReset,
+  activeSection,
+  activeScenarioName,
+  onOpenMobileMenu,
+  onOpenScenarios,
   onExport,
 }) => {
+  const meta = SECTION_META[activeSection];
+  const householdLabel = config.scenario?.hasSpouse && config.scenario?.spouseName
+    ? `${config.scenario.userName || 'Primary'} & ${config.scenario.spouseName}`
+    : config.scenario?.userName || 'Primary';
+
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-3 gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-xs">
-                RP
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                  Retirement Financial Planner
-                </h1>
-                <p className="text-xs text-slate-500 font-medium">
-                  Plan for{' '}
-                  <span className="text-slate-800 font-semibold">
-                    {config.scenario?.userName || 'User'}
-                    {config.scenario?.hasSpouse && config.scenario?.spouseName
-                      ? ` & ${config.scenario.spouseName}`
-                      : ''}
-                  </span>{' '}
-                  &bull; Target Retirement: {config.scenario?.retDate || '2030-07-01'}
-                  {config.scenario?.hasSpouse && config.scenario?.spouseRetDate
-                    ? ` (Spouse: ${config.scenario.spouseRetDate})`
-                    : ''}
-                </p>
-              </div>
-            </div>
-          </div>
+    <header className="sticky top-0 z-20 h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
+      {/* Left: Mobile drawer trigger + contextual breadcrumb & household metadata */}
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          type="button"
+          onClick={onOpenMobileMenu}
+          aria-label="Open navigation menu"
+          className="lg:hidden p-2 min-w-[40px] min-h-[40px] -ml-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center justify-center shrink-0"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
 
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            <PWAInstallButton />
-            <button
-              onClick={onReset}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
-              title="Reset parameters to original defaults"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-              Reset Defaults
-            </button>
-            <button
-              onClick={onExport}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors shadow-xs"
-              title="Download Excel spreadsheet matching the official model"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Export to Excel (.xlsx)
-            </button>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate">
+            <span className="hidden sm:inline text-slate-400 font-medium">{meta.group}</span>
+            <span className="hidden sm:inline text-slate-300 font-normal">/</span>
+            <h1 className="truncate">{meta.title}</h1>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 truncate">
+            <span className="font-medium text-slate-700 truncate">{householdLabel}</span>
+            <span aria-hidden="true">·</span>
+            <span className="whitespace-nowrap">Retire {config.scenario?.retDate || '2030-07-01'}</span>
+            {activeScenarioName && (
+              <>
+                <span aria-hidden="true" className="hidden md:inline">·</span>
+                <span className="hidden md:inline text-emerald-700 font-medium truncate">
+                  {activeScenarioName}
+                </span>
+              </>
+            )}
           </div>
         </div>
+      </div>
 
-        {/* Tab Navigation */}
-        <div className="flex border-t border-slate-100 -mb-px space-x-6 overflow-x-auto text-sm">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'overview'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            Dashboard & Depletion
-          </button>
-          <button
-            onClick={() => setActiveTab('charts')}
-            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'charts'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <DollarSign className="w-4 h-4" />
-            All Charts (Income, Expenses, Assets)
-          </button>
-          <button
-            onClick={() => setActiveTab('table')}
-            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'table'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <TableProperties className="w-4 h-4" />
-            Year-by-Year Simulation Table
-          </button>
-          <button
-            onClick={() => setActiveTab('roth')}
-            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'roth'
-                ? 'border-purple-600 text-purple-700 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <Sparkles className="w-4 h-4 text-purple-600" />
-            Roth Conversion Simulator
-            {config.rothConversion?.enabled && (
-              <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse"></span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('aca')}
-            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'aca'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <HeartPulse className="w-4 h-4 text-emerald-600" />
-            ACA Subsidy Planner
-            {config.acaOptimization?.enabled && (
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('whatif')}
-            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'whatif'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <Sliders className="w-4 h-4 text-emerald-600" />
-            What-If Optimization Scenarios
-          </button>
-          <button
-            onClick={() => setActiveTab('inputs')}
-            className={`py-3 px-1 border-b-2 font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
-              activeTab === 'inputs'
-                ? 'border-emerald-600 text-emerald-700 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <Sliders className="w-4 h-4" />
-            Edit Inputs & Income Sources ({config.sources.length})
-          </button>
-        </div>
+      {/* Right: Quiet secondary utilities + 1 Primary Export CTA */}
+      <div className="flex items-center gap-2 shrink-0">
+        <PWAInstallButton />
+        <button
+          type="button"
+          onClick={onOpenScenarios}
+          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 min-h-[40px] text-xs font-medium text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors whitespace-nowrap shrink-0"
+        >
+          <FolderOpen className="w-3.5 h-3.5 text-slate-500" />
+          Plans
+        </button>
+        <button
+          type="button"
+          onClick={onExport}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors whitespace-nowrap shrink-0"
+          title="Download Excel workbook (.xlsx)"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>Export Excel</span>
+        </button>
       </div>
     </header>
   );

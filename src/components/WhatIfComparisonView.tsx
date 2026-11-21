@@ -1,20 +1,39 @@
 import React, { useState, useMemo } from 'react';
-import { Sparkles, ShieldCheck, Award, CheckCircle2 } from 'lucide-react';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import { CheckCircle2, ArrowRight, RotateCcw } from 'lucide-react';
 import { PlannerConfig, StressPreset, DollarDisplayMode, YearSimulationResult } from '../types';
 import { runWhatIfComparisons, WhatIfScenarioResult } from '../whatifEngine';
+import { formatCurrency, formatCurrencyCompact } from '../utils/formatters';
 
 interface WhatIfComparisonViewProps {
   config: PlannerConfig;
   stressPreset: StressPreset;
   dollarMode: DollarDisplayMode;
   getDeflator: (yr: number, cumInflation?: number) => number;
+  onApplyStrategy: (newConfig: PlannerConfig, strategyName: string) => void;
+  previousConfig?: PlannerConfig | null;
+  lastAppliedName?: string | null;
+  onUndoApply?: () => void;
 }
 
 export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
   config,
   stressPreset,
   dollarMode,
-  getDeflator
+  getDeflator,
+  onApplyStrategy,
+  previousConfig,
+  lastAppliedName,
+  onUndoApply,
 }) => {
   const [selectedScenarioId, setSelectedScenarioId] = useState<WhatIfScenarioResult['id']>('minTax');
 
@@ -22,8 +41,9 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
     return runWhatIfComparisons(config, stressPreset);
   }, [config, stressPreset]);
 
-  const selectedScenario = scenarios.find(s => s.id === selectedScenarioId) || scenarios[1];
   const baselineScenario = scenarios[0];
+  const selectedScenario = scenarios.find(s => s.id === selectedScenarioId) || scenarios[1];
+  const valuationLabel = dollarMode === 'real' ? "Today's $" : 'Nominal $';
 
   const getYearDeflator = (y: YearSimulationResult) =>
     dollarMode === 'nominal' ? 1 : getDeflator(y.yr, y.cumGeneralInflation);
@@ -45,151 +65,274 @@ export const WhatIfComparisonView: React.FC<WhatIfComparisonViewProps> = ({
     return scen.finalBalance / deflator;
   };
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      maximumFractionDigits: 0
-    }).format(val);
-  };
+  const overlayChartData = useMemo(() => {
+    return baselineScenario.years.map((by, idx) => {
+      const sy = selectedScenario.years[idx];
+      const def = getYearDeflator(by);
+      return {
+        year: by.calYear,
+        'Your Baseline': Math.max(0, Math.round(by.combEndBal / def)),
+        [selectedScenario.shortName]: Math.max(0, Math.round((sy?.combEndBal ?? by.combEndBal) / def)),
+      };
+    });
+  }, [baselineScenario, selectedScenario, dollarMode]);
+
+  const selectedTax = getRealTaxes(selectedScenario);
+  const baseTax = getRealTaxes(baselineScenario);
+  const taxDiff = selectedTax - baseTax;
+
+  const selectedEstate = getRealFinalBalance(selectedScenario);
+  const baseEstate = getRealFinalBalance(baselineScenario);
+  const estateDiff = selectedEstate - baseEstate;
+
+  const selectedPeakRmd = getRealPeakRmd(selectedScenario);
+  const basePeakRmd = getRealPeakRmd(baselineScenario);
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-emerald-900 to-teal-900 rounded-2xl p-6 text-white shadow-lg">
-        <div className="flex items-center gap-2 mb-2">
-          <Sparkles className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-bold">What-If Scenario Optimization Engine</h2>
+      {/* Applied Confirmation & Undo Banner */}
+      {lastAppliedName && previousConfig && onUndoApply && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-emerald-950 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>
+              Applied <strong>{lastAppliedName}</strong> to your active retirement plan.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onUndoApply}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-lg bg-white border border-emerald-200 text-xs font-semibold text-emerald-800 hover:bg-emerald-100/50 transition-colors self-start sm:self-auto"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Undo Change
+          </button>
         </div>
-        <p className="text-emerald-100 text-xs sm:text-sm max-w-3xl leading-relaxed">
-          Compare how intelligent withdrawal sequencing and automated tax conversion strategies impact your retirement outcomes across five distinct financial goals. Select a strategy to inspect optimized cash flows, lifetime tax savings, and estate net worth.
+      )}
+
+      {/* Header Intro */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 sm:p-6">
+        <h2 className="text-base font-bold text-slate-900">What-If Optimization Lab</h2>
+        <p className="text-xs sm:text-sm text-slate-600 mt-1 max-w-3xl leading-relaxed">
+          Automatically tests withdrawal sequencing, Roth conversions, ACA MAGI caps, and sustainable spending ceilings against your current baseline. Select any strategy below to compare trajectories or apply it directly to your plan.
         </p>
+
+        {/* Accessible Strategy Selector Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 mt-5">
+          {scenarios.slice(1).map(scen => {
+            const isSelected = selectedScenarioId === scen.id;
+            const scenTax = getRealTaxes(scen);
+            const scenEstate = getRealFinalBalance(scen);
+            const deltaTax = scenTax - baseTax;
+
+            return (
+              <button
+                key={scen.id}
+                type="button"
+                onClick={() => setSelectedScenarioId(scen.id)}
+                aria-pressed={isSelected}
+                className={`text-left rounded-xl p-4 border transition-all flex flex-col justify-between min-h-[144px] ${
+                  isSelected
+                    ? 'bg-emerald-50/70 border-emerald-500 ring-1 ring-emerald-500'
+                    : 'bg-slate-50/50 border-slate-200 hover:border-slate-300 hover:bg-white'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="text-xs font-bold text-slate-900">{scen.name}</span>
+                    {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-3">
+                    {scen.description}
+                  </p>
+                </div>
+
+                <div className="space-y-1 pt-3 mt-3 border-t border-slate-200/70 text-[11px] tabular-nums">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Tax</span>
+                    <span className={`font-mono font-semibold ${deltaTax <= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      {formatCurrencyCompact(scenTax)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Estate</span>
+                    <span className="font-mono font-semibold text-slate-900">
+                      {formatCurrencyCompact(Math.max(0, scenEstate))}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Scenario Selection Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
-        {scenarios.slice(1).map(scen => {
-          const isSelected = selectedScenarioId === scen.id;
-          const scenTax = getRealTaxes(scen);
-          const baseTax = getRealTaxes(baselineScenario);
-          const taxDiff = scenTax - baseTax;
-          const scenEstate = getRealFinalBalance(scen);
-
-          return (
-            <div
-              key={scen.id}
-              onClick={() => setSelectedScenarioId(scen.id)}
-              className={`rounded-xl p-4 border transition-all cursor-pointer flex flex-col justify-between ${
-                isSelected
-                  ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-400/30 shadow-md'
-                  : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs'
-              }`}
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-slate-900">{scen.name}</span>
-                  {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed mb-3 line-clamp-3">
-                  {scen.description}
-                </p>
-              </div>
-
-              <div className="space-y-1.5 pt-3 border-t border-slate-100 text-[11px]">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Lifetime Tax:</span>
-                  <span className={`font-semibold ${taxDiff <= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
-                    {formatCurrency(scenTax)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Estate Net Worth:</span>
-                  <span className="font-semibold text-slate-900">
-                    {formatCurrency(scenEstate)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Detailed Comparison & Optimization breakdown */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
+      {/* Selected Strategy Detail & Trajectory Overlay */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 sm:p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Award className="w-5 h-5 text-emerald-600" />
-              Detailed Analysis: {selectedScenario.name}
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Comparison against your baseline configuration under active market stress preset.
+            <h3 className="text-base font-bold text-slate-900">{selectedScenario.name}</h3>
+            <p className="text-xs text-slate-500 mt-0.5 max-w-2xl">
+              {selectedScenario.description}
             </p>
           </div>
-          <div className="inline-flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700">
-            <span>Valuation:</span>
-            <span className="text-emerald-700 font-bold uppercase">{dollarMode}</span>
+          <button
+            type="button"
+            onClick={() => onApplyStrategy(selectedScenario.appliedConfig, selectedScenario.name)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[42px] rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+          >
+            <span>Apply to My Plan</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* 4 Delta Metrics */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+            <span className="text-xs font-medium text-slate-500 block">Lifetime Taxes ({valuationLabel})</span>
+            <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+              {formatCurrency(selectedTax)}
+            </div>
+            <div className={`text-xs font-medium tabular-nums mt-1 ${taxDiff <= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+              {taxDiff <= 0 ? 'Saves ' : '+'}
+              {formatCurrency(Math.abs(taxDiff))} vs. baseline
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+            <span className="text-xs font-medium text-slate-500 block">Peak Annual RMD</span>
+            <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+              {formatCurrency(selectedPeakRmd)}
+            </div>
+            <div className={`text-xs font-medium tabular-nums mt-1 ${selectedPeakRmd <= basePeakRmd ? 'text-emerald-700' : 'text-slate-600'}`}>
+              {selectedPeakRmd < basePeakRmd
+                ? `-${formatCurrency(basePeakRmd - selectedPeakRmd)}/yr vs. baseline`
+                : 'Same or higher than baseline'}
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+            <span className="text-xs font-medium text-slate-500 block">Ending Estate ({valuationLabel})</span>
+            <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+              {formatCurrency(Math.max(0, selectedEstate))}
+            </div>
+            <div className={`text-xs font-medium tabular-nums mt-1 ${estateDiff >= 0 ? 'text-emerald-700' : 'text-slate-600'}`}>
+              {estateDiff >= 0 ? '+' : '-'}
+              {formatCurrency(Math.abs(estateDiff))} vs. baseline
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+            <span className="text-xs font-medium text-slate-500 block">Portfolio Longevity</span>
+            <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+              {selectedScenario.summary.fundsRunOutYear === null
+                ? 'Fully Funded'
+                : `Depletes ${selectedScenario.summary.fundsRunOutYear}`}
+            </div>
+            <div className="text-xs font-medium text-emerald-700 tabular-nums mt-1">
+              {selectedScenario.id === 'maxSpending'
+                ? `Sustainable spend: ${formatCurrency(selectedScenario.maxSustainableAnnualExpense)}/yr`
+                : `${selectedScenario.summary.yearsFundingLasts} funded years`}
+            </div>
           </div>
         </div>
 
-        {/* Comparison Metrics Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <span className="text-xs font-semibold text-slate-500 block mb-1">Total Lifetime Taxes Paid</span>
-            <div className="text-lg font-extrabold text-slate-900 mb-1">
-              {formatCurrency(getRealTaxes(selectedScenario))}
-            </div>
-            <div className={`text-[11px] font-medium ${getRealTaxes(selectedScenario) <= getRealTaxes(baselineScenario) ? 'text-emerald-700' : 'text-rose-600'}`}>
-              {getRealTaxes(selectedScenario) <= getRealTaxes(baselineScenario) ? '▼ ' : '▲ '}
-              {formatCurrency(Math.abs(getRealTaxes(selectedScenario) - getRealTaxes(baselineScenario)))} vs Baseline
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <span className="text-xs font-semibold text-slate-500 block mb-1">Peak Annual RMD</span>
-            <div className="text-lg font-extrabold text-slate-900 mb-1">
-              {formatCurrency(getRealPeakRmd(selectedScenario))}
-            </div>
-            <div className={`text-[11px] font-medium ${getRealPeakRmd(selectedScenario) <= getRealPeakRmd(baselineScenario) ? 'text-emerald-700' : 'text-slate-600'}`}>
-              {getRealPeakRmd(selectedScenario) <= getRealPeakRmd(baselineScenario) ? '▼ Lower RMD burden' : 'Standard RMD profile'}
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <span className="text-xs font-semibold text-slate-500 block mb-1">Final Estate Net Worth</span>
-            <div className="text-lg font-extrabold text-slate-900 mb-1">
-              {formatCurrency(getRealFinalBalance(selectedScenario))}
-            </div>
-            <div className={`text-[11px] font-medium ${selectedScenario.finalBalance >= baselineScenario.finalBalance ? 'text-emerald-700' : 'text-slate-600'}`}>
-              {selectedScenario.finalBalance >= baselineScenario.finalBalance ? '▲ ' : '▼ '}
-              {formatCurrency(Math.abs(getRealFinalBalance(selectedScenario) - getRealFinalBalance(baselineScenario)))} vs Baseline
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <span className="text-xs font-semibold text-slate-500 block mb-1">Portfolio Longevity</span>
-            <div className="text-lg font-extrabold text-slate-900 mb-1">
-              {selectedScenario.summary.fundsRunOutYear === null ? 'Full Life Expectancy' : `Depletes in ${selectedScenario.summary.fundsRunOutYear}`}
-            </div>
-            <div className="text-[11px] font-medium text-emerald-700">
-              {selectedScenario.id === 'maxSpending' ? `Max Sustainable Spend: ${formatCurrency(selectedScenario.maxSustainableAnnualExpense)}/yr` : 'Sustains lifestyle goals'}
-            </div>
+        {/* Trajectory Overlay Chart */}
+        <div>
+          <h4 className="text-xs font-semibold text-slate-700 mb-3">
+            Portfolio Trajectory Comparison ({valuationLabel})
+          </h4>
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={overlayChartData} margin={{ top: 10, right: 16, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="year" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} />
+                <YAxis tickFormatter={formatCurrencyCompact} tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} width={58} />
+                <Tooltip
+                  formatter={(val: number, name: string) => [formatCurrency(val), name]}
+                  contentStyle={{ borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '12px' }}
+                />
+                <Legend wrapperStyle={{ fontSize: '11px' }} />
+                <Area
+                  type="monotone"
+                  dataKey="Your Baseline"
+                  stroke="#94a3b8"
+                  strokeDasharray="4 4"
+                  strokeWidth={2}
+                  fill="transparent"
+                />
+                <Area
+                  type="monotone"
+                  dataKey={selectedScenario.shortName}
+                  stroke="#059669"
+                  strokeWidth={2.5}
+                  fill="#d1fae5"
+                  fillOpacity={0.35}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
+      </div>
 
-        {/* Optimization Action Summary */}
-        <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-xs text-emerald-900 leading-relaxed space-y-2">
-          <div className="font-bold flex items-center gap-1.5 text-emerald-950">
-            <ShieldCheck className="w-4 h-4 text-emerald-700" />
-            Automated System Optimization Rules Applied for &quot;{selectedScenario.name}&quot;:
-          </div>
-          <p>
-            {selectedScenario.id === 'acaSubsidy' && `The simulation capped pre-Medicare taxable AGI below your ACA target threshold (inflated annually) and bridged remaining cash flow using Non-AGI Cash and Roth reserves to maximize Affordable Care Act Premium Tax Credits prior to Medicare at age ${config.milestones.medicareAge}.`}
-            {selectedScenario.id === 'minTax' && 'The simulation automatically sequenced accounts to exhaust taxable cash and brokerage before tax-deferred accounts, while executing pre-RMD Roth conversions to equalize tax brackets and avoid higher future marginal tax rates.'}
-            {selectedScenario.id === 'minRmd' && `The simulation prioritized traditional pre-tax 401(k) / IRA withdrawals prior to mandatory RMD age (${config.milestones.rmdAge}) and executed targeted pre-RMD Roth conversions to aggressively shrink pre-tax balances, minimizing future RMD spikes.`}
-            {selectedScenario.id === 'maxSpending' && 'The system iteratively evaluated lifestyle expense ceilings, identifying that your portfolio can safely sustain a higher annual expenditure without compromising long-term solvency.'}
-            {selectedScenario.id === 'maxEstate' && 'The simulation prioritized drawing down taxable assets and deferred pre-tax withdrawals, while keeping Roth accounts untouched to compound tax-free for legacy heirs.'}
+      {/* Compare All Side-by-Side Matrix */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="p-4 sm:p-5 border-b border-slate-200">
+          <h3 className="text-sm font-bold text-slate-900">All Strategies Side-by-Side ({valuationLabel})</h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Click any row to inspect its trajectory above.
           </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 text-[11px]">
+                <th className="py-3 px-4">Strategy</th>
+                <th className="py-3 px-3 text-right">Lifetime Taxes</th>
+                <th className="py-3 px-3 text-right">Peak RMD</th>
+                <th className="py-3 px-3 text-right">Ending Estate</th>
+                <th className="py-3 px-4 text-right">Longevity</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {scenarios.map(scen => {
+                const isSelected = scen.id === selectedScenarioId;
+                const isBase = scen.id === 'baseline';
+                return (
+                  <tr
+                    key={scen.id}
+                    onClick={() => !isBase && setSelectedScenarioId(scen.id)}
+                    className={`${
+                      isBase
+                        ? 'bg-slate-50/70'
+                        : isSelected
+                        ? 'bg-emerald-50/60 cursor-pointer'
+                        : 'hover:bg-slate-50 cursor-pointer'
+                    }`}
+                  >
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      {scen.name}
+                      {isBase && <span className="text-slate-400 font-normal ml-1.5">(Current)</span>}
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-800">
+                      {formatCurrency(getRealTaxes(scen))}
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-700">
+                      {formatCurrency(getRealPeakRmd(scen))}
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums font-semibold text-slate-900">
+                      {formatCurrency(Math.max(0, getRealFinalBalance(scen)))}
+                    </td>
+                    <td className="py-3 px-4 text-right tabular-nums">
+                      <span className={scen.summary.fundsRunOutYear === null ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-semibold'}>
+                        {scen.summary.fundsRunOutYear === null ? 'Fully Funded' : `Year ${scen.summary.fundsRunOutYear}`}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

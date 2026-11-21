@@ -7,138 +7,162 @@ interface RatesTabProps {
   onUpdateRates: (key: keyof RateAssumptions, value: number) => void;
 }
 
-export const RatesTab: React.FC<RatesTabProps> = ({ config, onUpdateRates }) => {
+interface RateSliderRowProps {
+  label: string;
+  helper: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  fallbackValue: number;
+  onChange: (val: number) => void;
+}
+
+const RateSliderRow: React.FC<RateSliderRowProps> = ({
+  label,
+  helper,
+  value,
+  min,
+  max,
+  step,
+  fallbackValue,
+  onChange,
+}) => {
+  const pct = Number((value * 100).toFixed(2));
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-2">
-          Investment & Inflation Assumptions
-        </h3>
-
+    <div className="space-y-2 pb-4 border-b border-slate-100 last:border-0 last:pb-0">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">
-            Annual Investment Rate of Return (%)
-          </label>
-          <NumericInput
-            step={0.5}
-            min={-20}
-            max={30}
-            displayScale={100}
-            fallbackValue={0.06}
-            value={config.rates.investRate}
-            onChange={val => onUpdateRates('investRate', val)}
-            className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-          />
-          <p className="text-[10px] text-slate-500 mt-0.5">Enter as percentage (e.g. 6 for 6.0%)</p>
+          <label className="block text-xs font-semibold text-slate-800">{label}</label>
+          <p className="text-xs text-slate-500 mt-0.5">{helper}</p>
         </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">
-            Annual General Inflation Rate (%)
-          </label>
+        <div className="w-28 shrink-0">
           <NumericInput
-            step={0.5}
-            min={0}
-            max={20}
+            suffix="%"
+            step={step}
+            min={min}
+            max={max}
             displayScale={100}
-            fallbackValue={0.025}
-            value={config.rates.inflationRate}
-            onChange={val => onUpdateRates('inflationRate', val)}
-            className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
+            fallbackValue={fallbackValue}
+            value={value}
+            onChange={onChange}
+            className="w-full min-h-[38px] text-right font-mono text-sm text-slate-900 border border-slate-300 rounded-lg pl-2.5 py-1.5 bg-white focus:border-emerald-600 focus:outline-none"
+            ariaLabel={label}
           />
-          <p className="text-[10px] text-slate-500 mt-0.5">Applies to day-to-day living expenses (standard 2.5%)</p>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
-            <span>Medical / Healthcare Inflation Rate (%)</span>
-            <span className="text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded font-semibold">Decoupled</span>
-          </label>
-          <NumericInput
-            step={0.5}
-            min={0}
-            max={25}
-            displayScale={100}
-            fallbackValue={0.045}
-            value={config.rates.medicalInflationRate ?? 0.045}
-            onChange={val => onUpdateRates('medicalInflationRate', val)}
-            className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-          />
-          <p className="text-[10px] text-slate-500 mt-0.5">
-            Decoupled escalation: healthcare historically runs at 4.5% vs 2.5% CPI.
-          </p>
         </div>
       </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={Math.min(max, Math.max(min, pct))}
+        onChange={e => onChange(parseFloat(e.target.value) / 100)}
+        aria-label={`${label} slider`}
+        className="w-full"
+      />
+    </div>
+  );
+};
 
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-2">
-          Tax Brackets & Rates
-        </h3>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">
-            Federal Tax Bracket (%)
-          </label>
-          <NumericInput
-            step={1}
-            min={0}
-            max={60}
-            displayScale={100}
-            fallbackValue={0.22}
-            value={config.rates.fedBracket}
-            onChange={val => onUpdateRates('fedBracket', val)}
-            className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-          />
+export const RatesTab: React.FC<RatesTabProps> = ({ config, onUpdateRates }) => {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Investment & Inflation */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
+        <div className="pb-3 border-b border-slate-100">
+          <h3 className="text-sm font-bold text-slate-900">Growth &amp; Inflation Assumptions</h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Drag sliders to watch sustainability and ending portfolio respond live above.
+          </p>
         </div>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">
-            State Tax Rate (%)
-          </label>
-          <NumericInput
-            step={0.5}
-            min={0}
-            max={25}
-            displayScale={100}
-            fallbackValue={0.05}
-            value={config.rates.stateRate}
-            onChange={val => onUpdateRates('stateRate', val)}
-            className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-          />
+        <RateSliderRow
+          label="Annual Investment Return"
+          helper="Expected annual portfolio growth rate (nominal)"
+          value={config.rates.investRate}
+          min={0}
+          max={14}
+          step={0.25}
+          fallbackValue={0.06}
+          onChange={val => onUpdateRates('investRate', val)}
+        />
+
+        <RateSliderRow
+          label="General Living Inflation (CPI)"
+          helper="Applies to day-to-day living costs and inflation-adjusted major expenses"
+          value={config.rates.inflationRate}
+          min={0}
+          max={10}
+          step={0.25}
+          fallbackValue={0.025}
+          onChange={val => onUpdateRates('inflationRate', val)}
+        />
+
+        <RateSliderRow
+          label="Healthcare / Medical Inflation"
+          helper="Decoupled escalation rate for pre-Medicare and Medicare health costs"
+          value={config.rates.medicalInflationRate ?? 0.045}
+          min={0}
+          max={12}
+          step={0.25}
+          fallbackValue={0.045}
+          onChange={val => onUpdateRates('medicalInflationRate', val)}
+        />
+      </div>
+
+      {/* Tax Brackets */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
+        <div className="pb-3 border-b border-slate-100">
+          <h3 className="text-sm font-bold text-slate-900">Effective Tax Rates</h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Applied to ordinary income withdrawals, guaranteed streams, and brokerage capital gains.
+          </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Capital Gain Tax Rate (%)
-            </label>
-            <NumericInput
-              step={1}
-              min={0}
-              max={40}
-              displayScale={100}
-              fallbackValue={0.15}
-              value={config.rates.capgainRate}
-              onChange={val => onUpdateRates('capgainRate', val)}
-              className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Capital Gain Share of Taxable (%)
-            </label>
-            <NumericInput
-              step={5}
-              min={0}
-              max={100}
-              displayScale={100}
-              fallbackValue={0.6}
-              value={config.rates.capgainPct}
-              onChange={val => onUpdateRates('capgainPct', val)}
-              className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-            />
-          </div>
-        </div>
+        <RateSliderRow
+          label="Federal Ordinary Tax Bracket"
+          helper="Effective / marginal federal rate applied to taxable income"
+          value={config.rates.fedBracket}
+          min={0}
+          max={40}
+          step={1}
+          fallbackValue={0.22}
+          onChange={val => onUpdateRates('fedBracket', val)}
+        />
+
+        <RateSliderRow
+          label="State Income Tax Rate"
+          helper="Set to 0% if retiring in a no-income-tax state"
+          value={config.rates.stateRate}
+          min={0}
+          max={15}
+          step={0.5}
+          fallbackValue={0.05}
+          onChange={val => onUpdateRates('stateRate', val)}
+        />
+
+        <RateSliderRow
+          label="Long-Term Capital Gains Tax Rate"
+          helper="Tax rate applied to realized investment gains from brokerage sales"
+          value={config.rates.capgainRate}
+          min={0}
+          max={30}
+          step={1}
+          fallbackValue={0.15}
+          onChange={val => onUpdateRates('capgainRate', val)}
+        />
+
+        <RateSliderRow
+          label="Capital Gain Share of Brokerage Sales"
+          helper="Percentage of brokerage withdrawal treated as taxable gain vs. cost basis"
+          value={config.rates.capgainPct}
+          min={0}
+          max={100}
+          step={5}
+          fallbackValue={0.6}
+          onChange={val => onUpdateRates('capgainPct', val)}
+        />
       </div>
     </div>
   );

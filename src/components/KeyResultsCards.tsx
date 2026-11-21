@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldAlert, ShieldCheck, Clock, Wallet, ReceiptText, Users } from 'lucide-react';
+import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import { PlanSummary, PlannerConfig, DollarDisplayMode, YearSimulationResult } from '../types';
 import { formatCurrency } from '../utils/formatters';
 
@@ -10,6 +10,7 @@ interface KeyResultsCardsProps {
   dollarMode?: DollarDisplayMode;
   stressPresetName?: string;
   isCustomStress?: boolean;
+  compact?: boolean;
 }
 
 export const KeyResultsCards: React.FC<KeyResultsCardsProps> = ({
@@ -19,126 +20,173 @@ export const KeyResultsCards: React.FC<KeyResultsCardsProps> = ({
   dollarMode = 'nominal',
   stressPresetName = 'Baseline Plan',
   isCustomStress = false,
+  compact = false,
 }) => {
   const isSustained = summary.fundsRunOutYear === null;
   const hasSpouse = Boolean(config.scenario.hasSpouse);
 
-  const realTotalTaxesPaid = React.useMemo(() => {
-    if (!years || years.length === 0) return summary.totalTaxesPaid;
-    return years.reduce((sum, y) => {
+  const realMetrics = React.useMemo(() => {
+    if (!years || years.length === 0) {
+      return {
+        totalTaxes: summary.totalTaxesPaid,
+        finalBalance: summary.finalBalance,
+      };
+    }
+    const totalTaxes = years.reduce((sum, y) => {
       const deflator =
         y.cumGeneralInflation && y.cumGeneralInflation > 0
           ? y.cumGeneralInflation
           : Math.pow(1 + config.rates.inflationRate, y.yr);
-      return sum + (y.totalTax / (deflator > 0 ? deflator : 1));
+      return sum + y.totalTax / (deflator > 0 ? deflator : 1);
     }, 0);
-  }, [years, summary.totalTaxesPaid, config.rates.inflationRate]);
 
-  const horizonText = hasSpouse
-    ? `Sustains through primary age ${config.scenario.lifeExpAge} & spouse age ${config.scenario.spouseLifeExpAge || 92}`
-    : `Portfolio sustains through age ${config.scenario.lifeExpAge}+`;
+    const lastYr = years[years.length - 1];
+    const finalDeflator =
+      lastYr && lastYr.cumGeneralInflation && lastYr.cumGeneralInflation > 0
+        ? lastYr.cumGeneralInflation
+        : Math.pow(1 + config.rates.inflationRate, Math.max(0, years.length - 1));
 
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      {/* Sustainability / Depletion Status */}
-      <div className={`bg-white rounded-xl p-5 border shadow-xs flex flex-col justify-between ${
-        isCustomStress ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'
-      }`}>
-        <div className="flex items-center justify-between text-slate-500 mb-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wider">Fund Depletion</span>
-            {isCustomStress && (
-              <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">
-                {stressPresetName}
-              </span>
-            )}
-          </div>
+    return {
+      totalTaxes,
+      finalBalance: summary.finalBalance / (finalDeflator > 0 ? finalDeflator : 1),
+    };
+  }, [years, summary.totalTaxesPaid, summary.finalBalance, config.rates.inflationRate]);
+
+  const displayedTaxes = dollarMode === 'real' ? realMetrics.totalTaxes : summary.totalTaxesPaid;
+  const displayedFinal = dollarMode === 'real' ? realMetrics.finalBalance : summary.finalBalance;
+  const valuationLabel = dollarMode === 'real' ? "Today's $" : 'Nominal $';
+
+  // Compact Live Impact Strip for Configuration screens
+  if (compact) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 mb-5 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5">
           {isSustained ? (
-            <span className="p-1.5 rounded-md bg-emerald-50 text-emerald-600">
-              <ShieldCheck className="w-5 h-5" />
-            </span>
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
           ) : (
-            <span className="p-1.5 rounded-md bg-amber-50 text-amber-600">
-              <ShieldAlert className="w-5 h-5" />
-            </span>
+            <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
           )}
-        </div>
-        <div>
-          <div className={`text-2xl font-bold ${isSustained ? 'text-emerald-700' : 'text-amber-700'}`}>
-            {isSustained ? 'Not Depleted' : `Year ${summary.fundsRunOutYear}`}
+          <div>
+            <div className="text-[11px] font-medium text-slate-500">Plan Sustainability</div>
+            <div className={`text-sm font-bold tabular-nums ${isSustained ? 'text-emerald-700' : 'text-amber-700'}`}>
+              {isSustained ? `Funded ${summary.yearsFundingLasts} yrs` : `Depletes ${summary.fundsRunOutYear}`}
+            </div>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {isSustained ? horizonText : `Funds run out during the ${summary.yearsFundingLasts}th year`}
-          </p>
         </div>
-      </div>
 
-      {/* Years Funding Lasts */}
-      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
-        <div className="flex items-center justify-between text-slate-500 mb-2">
-          <span className="text-xs font-semibold uppercase tracking-wider">Years Funding Lasts</span>
-          <span className="p-1.5 rounded-md bg-sky-50 text-sky-600">
-            <Clock className="w-5 h-5" />
-          </span>
-        </div>
-        <div>
-          <div className="text-2xl font-bold text-slate-900">
-            {summary.yearsFundingLasts} Years
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Across {config.projectionYears}-year simulated retirement horizon
-          </p>
-        </div>
-      </div>
+        <div className="h-7 w-px bg-slate-200 hidden sm:block" />
 
-      {/* Starting Combined Balance */}
-      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
-        <div className="flex items-center justify-between text-slate-500 mb-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wider">Starting Portfolio</span>
-            {hasSpouse && (
-              <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
-                <Users className="w-3 h-3" /> Joint
-              </span>
-            )}
-          </div>
-          <span className="p-1.5 rounded-md bg-indigo-50 text-indigo-600">
-            <Wallet className="w-5 h-5" />
-          </span>
-        </div>
         <div>
-          <div className="text-2xl font-bold text-slate-900">
+          <div className="text-[11px] font-medium text-slate-500">Starting Portfolio</div>
+          <div className="text-sm font-bold text-slate-900 tabular-nums">
             {formatCurrency(summary.startingCombinedBalance)}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Sum of all initial depleting asset accounts
+        </div>
+
+        <div className="h-7 w-px bg-slate-200 hidden sm:block" />
+
+        <div>
+          <div className="text-[11px] font-medium text-slate-500">Ending Balance ({valuationLabel})</div>
+          <div className="text-sm font-bold text-slate-900 tabular-nums">
+            {formatCurrency(Math.max(0, displayedFinal))}
+          </div>
+        </div>
+
+        <div className="h-7 w-px bg-slate-200 hidden sm:block" />
+
+        <div>
+          <div className="text-[11px] font-medium text-slate-500">Est. Lifetime Taxes ({valuationLabel})</div>
+          <div className="text-sm font-bold text-slate-900 tabular-nums">
+            {formatCurrency(displayedTaxes)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const horizonText = hasSpouse
+    ? `Through age ${config.scenario.lifeExpAge} & spouse age ${config.scenario.spouseLifeExpAge || 92}`
+    : `Through age ${config.scenario.lifeExpAge}+`;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      {/* 1. Plan Sustainability */}
+      <div
+        className={`bg-white rounded-xl p-5 border flex flex-col justify-between ${
+          !isSustained
+            ? 'border-amber-300'
+            : isCustomStress
+            ? 'border-amber-200'
+            : 'border-slate-200'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-3">
+          <span className="font-medium">Plan Sustainability</span>
+          <span className={`inline-flex items-center gap-1 font-semibold ${isSustained ? 'text-emerald-700' : 'text-amber-700'}`}>
+            {isSustained ? <ShieldCheck className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+            {isSustained ? 'On Track' : 'Shortfall'}
+          </span>
+        </div>
+        <div>
+          <div className={`text-2xl font-bold tracking-tight tabular-nums ${isSustained ? 'text-emerald-700' : 'text-amber-700'}`}>
+            {isSustained ? 'Fully Funded' : `Depletes ${summary.fundsRunOutYear}`}
+          </div>
+          <p className="text-xs text-slate-500 mt-1.5">
+            {isSustained
+              ? `${horizonText} · ${summary.yearsFundingLasts} yrs`
+              : `Lasts ${summary.yearsFundingLasts} of ${config.projectionYears} simulated years`}
+            {isCustomStress ? ` · ${stressPresetName}` : ''}
           </p>
         </div>
       </div>
 
-      {/* Lifetime Tax Liability */}
-      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
-        <div className="flex items-center justify-between text-slate-500 mb-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wider">Est. Lifetime Taxes</span>
-            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
-              {dollarMode === 'real' ? "Today's $" : 'Nominal $'}
-            </span>
-          </div>
-          <span className="p-1.5 rounded-md bg-purple-50 text-purple-600">
-            <ReceiptText className="w-5 h-5" />
-          </span>
+      {/* 2. Projected Ending Portfolio */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200 flex flex-col justify-between">
+        <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-3">
+          <span className="font-medium">Ending Estate Balance</span>
+          <span className="text-slate-400">{valuationLabel}</span>
         </div>
         <div>
-          <div className="text-2xl font-bold text-slate-900">
-            {formatCurrency(dollarMode === 'real' ? realTotalTaxesPaid : summary.totalTaxesPaid)}
+          <div className="text-2xl font-bold tracking-tight text-slate-900 tabular-nums">
+            {formatCurrency(Math.max(0, displayedFinal))}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Federal, state, and capital gains projections
+          <p className="text-xs text-slate-500 mt-1.5">
+            Projected balance after {config.projectionYears}-year horizon
+          </p>
+        </div>
+      </div>
+
+      {/* 3. Starting Portfolio */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200 flex flex-col justify-between">
+        <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-3">
+          <span className="font-medium">Starting Portfolio</span>
+          <span className="text-slate-400">{hasSpouse ? 'Joint Household' : 'Individual'}</span>
+        </div>
+        <div>
+          <div className="text-2xl font-bold tracking-tight text-slate-900 tabular-nums">
+            {formatCurrency(summary.startingCombinedBalance)}
+          </div>
+          <p className="text-xs text-slate-500 mt-1.5">
+            {config.sources.filter(s => s.monthly === 'N').length} depleting accounts · {config.sources.filter(s => s.monthly === 'Y').length} guaranteed streams
+          </p>
+        </div>
+      </div>
+
+      {/* 4. Lifetime Tax Liability */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200 flex flex-col justify-between">
+        <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-3">
+          <span className="font-medium">Est. Lifetime Taxes</span>
+          <span className="text-slate-400">{valuationLabel}</span>
+        </div>
+        <div>
+          <div className="text-2xl font-bold tracking-tight text-slate-900 tabular-nums">
+            {formatCurrency(displayedTaxes)}
+          </div>
+          <p className="text-xs text-slate-500 mt-1.5">
+            Federal, state, and capital gains combined
           </p>
         </div>
       </div>
     </div>
   );
 };
-

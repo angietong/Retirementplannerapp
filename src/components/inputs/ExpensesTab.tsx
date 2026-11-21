@@ -1,173 +1,200 @@
 import React from 'react';
-import { Sparkles } from 'lucide-react';
 import { PlannerConfig, MonthlyExpenses } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
+import { NumericInput } from '../NumericInput';
 
 interface ExpensesTabProps {
   config: PlannerConfig;
   onUpdateExpenses: (key: keyof MonthlyExpenses, value: any) => void;
-  onNavigateToMajorExpenses: () => void;
+  onNavigateToAca?: () => void;
 }
 
 export const ExpensesTab: React.FC<ExpensesTabProps> = ({
   config,
   onUpdateExpenses,
-  onNavigateToMajorExpenses,
+  onNavigateToAca,
 }) => {
-  const majorExpensesCount = (config.majorExpenses || []).length;
+  const preMedAnnual =
+    12 * (config.expenses.expDaily + config.expenses.expMedPremium + config.expenses.expMedOop);
+  const postMedAnnual =
+    12 *
+    (config.expenses.expDaily +
+      (config.expenses.expMedPremiumPost ?? 320) +
+      (config.expenses.expMedOopPost ?? 180));
 
   return (
-    <div className="max-w-2xl space-y-5">
-      <div>
-        <h3 className="text-sm font-semibold text-slate-900">
-          Monthly Expenses (Base Year, Today&apos;s Dollars)
-        </h3>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Living expenses grow at the general inflation rate ({((config.rates.inflationRate || 0.025) * 100).toFixed(1)}%), while healthcare expenses grow at the decoupled medical inflation rate ({(((config.rates.medicalInflationRate ?? 0.045)) * 100).toFixed(1)}%).
-        </p>
-      </div>
-
-      <div>
-        <label className="block text-xs font-medium text-slate-700 mb-1">
-          Day-to-day After-tax Living Expenses ($ / month)
-        </label>
-        <input
-          type="number"
-          value={config.expenses.expDaily}
-          onChange={e => onUpdateExpenses('expDaily', parseFloat(e.target.value) || 0)}
-          className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-        />
-        <p className="text-[10px] text-slate-500 mt-0.5">
-          Housing, food, utilities, leisure, travel, and non-medical living costs.
-        </p>
-      </div>
-
-      {/* Medical Expenses Section */}
-      <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/60 space-y-4">
+    <div className="bg-white rounded-xl border border-slate-200 p-5 sm:p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
         <div>
-          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-            Pre-Medicare Medical Expenses (Before Age 65)
-          </h4>
-          <p className="text-[11px] text-slate-500">
-            Private insurance, ACA marketplace coverage, or COBRA.
+          <h3 className="text-sm font-bold text-slate-900">
+            Monthly Baseline Expenses (Today&apos;s Dollars)
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Living costs inflate at {((config.rates.inflationRate || 0.025) * 100).toFixed(1)}% · Healthcare inflates at {(((config.rates.medicalInflationRate ?? 0.045)) * 100).toFixed(1)}%.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Medical Premium ($ / month)
-            </label>
-            <input
-              type="number"
-              value={config.expenses.expMedPremium}
-              onChange={e => onUpdateExpenses('expMedPremium', parseFloat(e.target.value) || 0)}
-              className="w-full bg-white border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Medical Out-of-pocket ($ / month)
-            </label>
-            <input
-              type="number"
-              value={config.expenses.expMedOop}
-              onChange={e => onUpdateExpenses('expMedOop', parseFloat(e.target.value) || 0)}
-              className="w-full bg-white border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-            />
-          </div>
-        </div>
-
-        <div className="bg-emerald-50/80 border border-emerald-200 rounded-lg p-2.5 text-[11px] text-emerald-900 flex items-center justify-between">
-          <span>
-            💡 <strong>ACA Subsidy Bridge:</strong> You can optimize your drawdown sequence in the <strong>ACA Subsidy Drawdown</strong> tab to cap taxable AGI and qualify for federal health insurance subsidies before age 65.
-          </span>
-        </div>
-
-        {/* Post-Medicare Milestone Toggle */}
-        <div className="pt-3 border-t border-slate-200">
-          <label className="flex items-start gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={config.expenses.hasMedicarePostExp ?? true}
-              onChange={e => onUpdateExpenses('hasMedicarePostExp', e.target.checked)}
-              className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-slate-300 mt-0.5"
-            />
-            <div>
-              <span className="text-xs font-bold text-slate-800">
-                Specify Different Medical Expenses After Medicare Milestone (Age 65+)
-              </span>
-              <p className="text-[11px] text-slate-500">
-                When reaching Age 65, medical expenses transition from private coverage to Medicare Part B/D + Medigap Supplement.
-              </p>
-            </div>
-          </label>
-
+        <div className="text-xs text-slate-600 tabular-nums bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2">
+          Base Annual:{' '}
+          <strong className="font-mono text-slate-900">{formatCurrency(preMedAnnual)}/yr</strong>
           {(config.expenses.hasMedicarePostExp ?? true) && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 bg-white p-3 rounded-lg border border-slate-200">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Post-Medicare Premium ($ / mo)
-                </label>
-                <input
-                  type="number"
-                  value={config.expenses.expMedPremiumPost ?? 320}
-                  onChange={e => onUpdateExpenses('expMedPremiumPost', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                  placeholder="e.g. 320"
-                />
-                <p className="text-[10px] text-slate-500 mt-0.5">Medicare Part B standard premium + Part D / Medigap</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Post-Medicare Out-of-pocket ($ / mo)
-                </label>
-                <input
-                  type="number"
-                  value={config.expenses.expMedOopPost ?? 180}
-                  onChange={e => onUpdateExpenses('expMedOopPost', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs text-slate-900 focus:outline-emerald-500"
-                  placeholder="e.g. 180"
-                />
-                <p className="text-[10px] text-slate-500 mt-0.5">Copays, dental, vision, hearing out-of-pocket</p>
-              </div>
-            </div>
+            <span className="text-slate-500">
+              {' '}· Age {config.milestones.medicareAge}+: <strong className="font-mono text-emerald-700">{formatCurrency(postMedAnnual)}/yr</strong>
+            </span>
           )}
         </div>
       </div>
 
-      <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-        <span className="font-semibold text-slate-800">Initial Base Annual Expense: </span>
-        <span className="font-mono font-bold text-emerald-700">
-          {formatCurrency(12 * (config.expenses.expDaily + config.expenses.expMedPremium + config.expenses.expMedOop))}
-          /year
-        </span>
-        {(config.expenses.hasMedicarePostExp ?? true) && (
-          <span className="text-slate-500 ml-2">
-            (shifts to {formatCurrency(12 * (config.expenses.expDaily + (config.expenses.expMedPremiumPost ?? 320) + (config.expenses.expMedOopPost ?? 180)))}/yr in today&apos;s dollars at Medicare Age 65)
-          </span>
-        )}
+      {/* Day-to-day living */}
+      <div className="space-y-2 max-w-xl">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-800">
+              Day-to-Day Living Expenses (After-Tax)
+            </label>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Housing, food, utilities, travel, leisure, and recurring household costs.
+            </p>
+          </div>
+          <div className="w-36 shrink-0">
+            <NumericInput
+              prefix="$"
+              suffix="/mo"
+              formatWithCommas
+              min={0}
+              fallbackValue={5500}
+              value={config.expenses.expDaily}
+              onChange={val => onUpdateExpenses('expDaily', val)}
+              className="w-full min-h-[40px] text-right font-mono text-sm text-slate-900 border border-slate-300 rounded-lg py-2 bg-white focus:border-emerald-600 focus:outline-none"
+              ariaLabel="Monthly day-to-day living expenses"
+            />
+          </div>
+        </div>
+        <input
+          type="range"
+          min={1000}
+          max={20000}
+          step={250}
+          value={Math.min(20000, Math.max(1000, config.expenses.expDaily))}
+          onChange={e => onUpdateExpenses('expDaily', parseFloat(e.target.value))}
+          aria-label="Monthly living expenses slider"
+          className="w-full"
+        />
       </div>
 
-      {/* Link to Major Expenses */}
-      <div className="p-4 bg-amber-50/70 rounded-xl border border-amber-200 flex items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-1.5 text-amber-900 font-semibold text-xs">
-            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-            Have one-time major expenses planned? (Vehicles, Home Remodel, College, Travel)
+      {/* Healthcare Pre & Post Medicare */}
+      <div className="pt-5 border-t border-slate-100 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h4 className="text-xs font-bold text-slate-900">
+                Pre-Medicare Healthcare (Before Age {config.milestones.medicareAge})
+              </h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Private marketplace coverage, ACA plan, or COBRA.
+              </p>
+            </div>
+            {onNavigateToAca && (
+              <button
+                type="button"
+                onClick={onNavigateToAca}
+                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 whitespace-nowrap"
+              >
+                ACA Optimizer &rarr;
+              </button>
+            )}
           </div>
-          <p className="text-[11px] text-amber-800/80 mt-0.5">
-            You can specify up to 10 major one-time annual expenses by age. The planner will automatically increase withdrawals for those specific years.
-          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                Monthly Premium
+              </label>
+              <NumericInput
+                prefix="$"
+                suffix="/mo"
+                formatWithCommas
+                min={0}
+                fallbackValue={750}
+                value={config.expenses.expMedPremium}
+                onChange={val => onUpdateExpenses('expMedPremium', val)}
+                className="w-full min-h-[40px] text-right font-mono text-sm text-slate-900 border border-slate-300 rounded-lg py-2 bg-white focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                Monthly Out-of-Pocket
+              </label>
+              <NumericInput
+                prefix="$"
+                suffix="/mo"
+                formatWithCommas
+                min={0}
+                fallbackValue={350}
+                value={config.expenses.expMedOop}
+                onChange={val => onUpdateExpenses('expMedOop', val)}
+                className="w-full min-h-[40px] text-right font-mono text-sm text-slate-900 border border-slate-300 rounded-lg py-2 bg-white focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+          </div>
         </div>
-        <button
-          onClick={onNavigateToMajorExpenses}
-          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-xs font-semibold shrink-0 transition-colors shadow-2xs"
-        >
-          Configure Major Expenses ({majorExpensesCount})
-        </button>
+
+        <div className="space-y-4 lg:border-l lg:border-slate-100 lg:pl-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h4 className="text-xs font-bold text-slate-900">
+                Post-Medicare Healthcare (Age {config.milestones.medicareAge}+)
+              </h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Transition to Medicare Part B/D &amp; Medigap Supplement costs.
+              </p>
+            </div>
+            <label className="inline-flex items-center gap-2 cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={config.expenses.hasMedicarePostExp ?? true}
+                onChange={e => onUpdateExpenses('hasMedicarePostExp', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="relative w-10 h-6 bg-slate-300 rounded-full peer peer-checked:bg-emerald-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
+            </label>
+          </div>
+
+          {(config.expenses.hasMedicarePostExp ?? true) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                  Medicare Premium
+                </label>
+                <NumericInput
+                  prefix="$"
+                  suffix="/mo"
+                  formatWithCommas
+                  min={0}
+                  fallbackValue={320}
+                  value={config.expenses.expMedPremiumPost ?? 320}
+                  onChange={val => onUpdateExpenses('expMedPremiumPost', val)}
+                  className="w-full min-h-[40px] text-right font-mono text-sm text-slate-900 border border-slate-300 rounded-lg py-2 bg-white focus:border-emerald-600 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                  Medicare Out-of-Pocket
+                </label>
+                <NumericInput
+                  prefix="$"
+                  suffix="/mo"
+                  formatWithCommas
+                  min={0}
+                  fallbackValue={180}
+                  value={config.expenses.expMedOopPost ?? 180}
+                  onChange={val => onUpdateExpenses('expMedOopPost', val)}
+                  className="w-full min-h-[40px] text-right font-mono text-sm text-slate-900 border border-slate-300 rounded-lg py-2 bg-white focus:border-emerald-600 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
