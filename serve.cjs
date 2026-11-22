@@ -4,9 +4,11 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const DIST_DIR = fs.existsSync(path.join(__dirname, 'standalone'))
-  ? path.join(__dirname, 'standalone')
-  : path.join(__dirname, 'dist');
+const DIST_DIR = fs.existsSync(path.join(__dirname, 'standalone', 'index.html'))
+  ? path.resolve(__dirname, 'standalone')
+  : fs.existsSync(path.join(__dirname, 'index.html'))
+  ? path.resolve(__dirname)
+  : path.resolve(__dirname, 'dist');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=UTF-8',
@@ -26,17 +28,28 @@ const MIME_TYPES = {
 };
 
 const server = http.createServer(function (req, res) {
-  const reqUrl = req.url.split('?')[0];
-  let safePath = path.normalize(reqUrl).replace(/^(\.\.[\/\\])+/, '');
-  if (safePath === '/' || safePath === '\\') {
-    safePath = '/index.html';
+  let reqUrl = '/';
+  try {
+    reqUrl = decodeURIComponent((req.url || '/').split('?')[0]);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad Request');
+    return;
   }
 
-  let filePath = path.join(DIST_DIR, safePath);
+  let safeRelPath = path.normalize(reqUrl).replace(/^(\.\.[/\\])+/, '');
+  if (safeRelPath === '/' || safeRelPath === '\\' || safeRelPath === '.') {
+    safeRelPath = '/index.html';
+  }
+
+  let filePath = path.resolve(DIST_DIR, '.' + (safeRelPath.startsWith('/') ? safeRelPath : '/' + safeRelPath));
+  if (filePath !== DIST_DIR && !filePath.startsWith(DIST_DIR + path.sep)) {
+    filePath = path.join(DIST_DIR, 'index.html');
+  }
 
   fs.stat(filePath, function (err, stats) {
     if (err || !stats.isFile()) {
-      // SPA Fallback: serve dist/index.html
+      // SPA Fallback: serve index.html
       filePath = path.join(DIST_DIR, 'index.html');
     }
 
@@ -61,7 +74,8 @@ const server = http.createServer(function (req, res) {
 
 server.listen(PORT, '0.0.0.0', function () {
   console.log('====================================================');
-  console.log('Retirement Financial Planner running locally!');
-  console.log('Open in Safari: http://localhost:' + PORT);
+  console.log('Retirement Financial Planner running locally (Offline-Ready)!');
+  console.log('Serving directory: ' + DIST_DIR);
+  console.log('Open in browser:   http://localhost:' + PORT);
   console.log('====================================================');
 });
