@@ -155,13 +155,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Navigation Groups */}
-      <nav aria-label="Primary navigation" className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+      <nav aria-label="Primary navigation" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-4">
         {navGroups.map(group => (
           <div key={group.label}>
-            <div className="px-3 mb-2 text-xs font-semibold text-slate-400 tracking-wide">
+            <div className="px-3 mb-1.5 text-xs font-semibold text-slate-400 tracking-wide">
               {group.label}
             </div>
-            <ul className="space-y-1">
+            <ul className="space-y-0.5">
               {group.items.map(item => {
                 const Icon = item.icon;
                 const isActive = activeSection === item.id;
@@ -171,7 +171,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       type="button"
                       onClick={() => handleSelect(item.id)}
                       aria-current={isActive ? 'page' : undefined}
-                      className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 min-h-[40px] rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap ${
+                      className={`w-full flex items-center justify-between gap-2 px-3 py-2 min-h-[38px] rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap ${
                         isActive
                           ? 'bg-emerald-50 text-emerald-800 font-semibold'
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
@@ -208,7 +208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Sidebar Utility Footer */}
-      <div className="p-3 border-t border-slate-200 space-y-2 bg-slate-50/60 shrink-0">
+      <div className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-slate-200 space-y-2 bg-slate-50/60 shrink-0">
         {/* Active Plan / Vault Card */}
         <button
           type="button"
@@ -291,12 +291,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {/* Desktop persistent sidebar */}
-      <aside className="hidden lg:block w-64 shrink-0 sticky top-0 h-screen z-30">
+      {/* Desktop & iPad Landscape persistent sidebar (h-dvh prevents iPad Safari bottom clipping) */}
+      <aside className="hidden lg:block w-64 shrink-0 sticky top-0 h-dvh max-h-dvh z-30">
         {sidebarContent}
       </aside>
 
-      {/* Mobile / iPad slide-over drawer */}
+      {/* Mobile / iPad Portrait slide-over drawer */}
       {mobileOpen && (
         <div
           className="fixed inset-0 z-50 lg:hidden flex"
@@ -308,7 +308,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs"
             onClick={onCloseMobile}
           />
-          <div className="relative w-72 max-w-[85vw] h-full shadow-2xl z-10">
+          <div className="relative w-72 max-w-[85vw] h-dvh max-h-dvh shadow-2xl z-10">
             {sidebarContent}
           </div>
         </div>

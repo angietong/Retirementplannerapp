@@ -13,9 +13,23 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 
-// Register service worker for offline standalone support
+// Register service worker for offline standalone support and auto-refresh when a new build activates
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  registerSW({ immediate: true });
+  let hasController = Boolean(navigator.serviceWorker.controller);
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hasController && !refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+    hasController = true;
+  });
+  registerSW({
+    immediate: true,
+    onRegisteredSW(_swUrl, registration) {
+      registration?.update().catch(() => {});
+    },
+  });
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

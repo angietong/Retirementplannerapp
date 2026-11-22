@@ -104,7 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
           type="button"
           onClick={onNewPlan}
           title="Create a new named plan in its own encrypted vault file"
-          className="hidden xl:inline-flex items-center gap-1.5 px-3 py-2 min-h-[40px] text-xs font-medium text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors whitespace-nowrap shrink-0"
+          className="hidden md:inline-flex items-center gap-1.5 px-2.5 lg:px-3 py-2 min-h-[40px] text-xs font-medium text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors whitespace-nowrap shrink-0"
         >
           <FilePlus2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
           <span>New Plan</span>
@@ -114,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
           type="button"
           onClick={onOpenPlan}
           title="Open an existing encrypted plan vault file (.rpvault)"
-          className="hidden xl:inline-flex items-center gap-1.5 px-3 py-2 min-h-[40px] text-xs font-medium text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors whitespace-nowrap shrink-0"
+          className="hidden md:inline-flex items-center gap-1.5 px-2.5 lg:px-3 py-2 min-h-[40px] text-xs font-medium text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors whitespace-nowrap shrink-0"
         >
           <FolderOpen className="w-3.5 h-3.5 text-slate-500 shrink-0" />
           <span>Open Plan</span>

@@ -87,7 +87,7 @@ define(['./workbox-bd5fa0a7'], (function (workbox) { 'use strict';
     "revision": "2170afce667eaff4277081520b2621fd"
   }, {
     "url": "index.html",
-    "revision": "771dfd2c84941562c49f17f54e25153c"
+    "revision": "602f09c120df055ebb3006515d8d1e48"
   }, {
     "url": "icon.svg",
     "revision": "5a9941e0e5a76d8e358ee9dfdffec381"
@@ -95,10 +95,58 @@ define(['./workbox-bd5fa0a7'], (function (workbox) { 'use strict';
     "url": "apple-touch-icon.png",
     "revision": "fb86ca2b2ae9d25bf02edcc8e46496ab"
   }, {
-    "url": "assets/index-D5qEqz4Z.css",
+    "url": "assets/plus-jakarta-sans-latin-800-normal-CusIZhrK.woff2",
     "revision": null
   }, {
-    "url": "assets/index-BXDoENDd.js",
+    "url": "assets/plus-jakarta-sans-latin-800-normal-BRNHt2w0.woff",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-700-normal-DqEcQeE5.woff",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-700-normal-CfpNZvy6.woff2",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-600-normal-DLTa1BUW.woff2",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-600-normal-BR_Ojra4.woff",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-500-normal-DYtqi0QS.woff",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-500-normal-Bf-nb4oT.woff2",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-400-normal-Dhut76fR.woff2",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-400-normal-BDKaGhyp.woff",
+    "revision": null
+  }, {
+    "url": "assets/index-DEAyWIDo.js",
+    "revision": null
+  }, {
+    "url": "assets/index-C3c-S2wj.css",
+    "revision": null
+  }, {
+    "url": "assets/ibm-plex-mono-latin-600-normal-DWFSQ4vo.woff",
+    "revision": null
+  }, {
+    "url": "assets/ibm-plex-mono-latin-600-normal-BgSNZQsw.woff2",
+    "revision": null
+  }, {
+    "url": "assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2",
+    "revision": null
+  }, {
+    "url": "assets/ibm-plex-mono-latin-500-normal-CB9ihrfo.woff",
+    "revision": null
+  }, {
+    "url": "assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2",
+    "revision": null
+  }, {
+    "url": "assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff",
     "revision": null
   }, {
     "url": "apple-touch-icon.png",
@@ -123,7 +171,7 @@ define(['./workbox-bd5fa0a7'], (function (workbox) { 'use strict';
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html")));
   workbox.registerRoute(({
     request
-  }) => request.destination === "document" || request.destination === "script" || request.destination === "style" || request.destination === "image", new workbox.StaleWhileRevalidate({
+  }) => request.destination === "document" || request.destination === "script" || request.destination === "style" || request.destination === "font" || request.destination === "image", new workbox.StaleWhileRevalidate({
     "cacheName": "app-runtime-cache",
     plugins: [new workbox.CacheableResponsePlugin({
       statuses: [0, 200]
