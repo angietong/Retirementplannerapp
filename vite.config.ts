@@ -11,15 +11,15 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
       manifest: {
-        id: '/',
+        id: '/Retirementplannerapp/',
         name: 'Retirement Financial Planner',
         short_name: 'RetirePlan',
         description: 'Comprehensive retirement financial planning and simulation tool with income, expense modeling, tax projections, and depletion forecasting.',
         theme_color: '#059669',
         background_color: '#0f172a',
         display: 'standalone',
-        start_url: '/',
-        scope: '/',
+        start_url: '/Retirementplannerapp/',
+        scope: '/Retirementplannerapp/',
         icons: [
           {
             src: '/pwa-192x192.png',
