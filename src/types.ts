@@ -66,8 +66,21 @@ export interface RateAssumptions {
   capgainPct: number;
 }
 
+export type PhaseKey =
+  | 'retirement'
+  | 'earlyRetirement'
+  | 'four01k'
+  | 'ira'
+  | 'socialSecurity'
+  | 'medicare'
+  | 'rmd';
+
+export type PhaseExpenseMap = Record<PhaseKey, number>;
+
 export interface MonthlyExpenses {
   expDaily: number;
+  usePhaseExpenses?: boolean;
+  phaseExpDaily?: PhaseExpenseMap;
   expMedPremium: number;
   expMedOop: number;
   hasMedicarePostExp?: boolean;
@@ -149,6 +162,7 @@ export interface YearSimulationResult {
   spouseSalary?: number;
   expenses: number;
   generalExpenses?: number;
+  baseMonthlyLivingExpense?: number;
   medicalExpenses?: number;
   majorExpenses?: number;
   majorExpensesList?: { name: string; amount: number }[];

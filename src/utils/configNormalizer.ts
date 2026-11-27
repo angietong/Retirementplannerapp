@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG } from '../defaultData';
-import { PlannerConfig, SavedScenario } from '../types';
+import { PlannerConfig, SavedScenario, PhaseKey } from '../types';
+import { buildDefaultPhaseExpenses } from '../engine';
 
 function stripUnsafeKeys<T extends Record<string, unknown>>(obj: unknown): Partial<T> {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
@@ -45,10 +46,31 @@ export function normalizeConfig(parsed: unknown): PlannerConfig {
       ...DEFAULT_CONFIG.rates,
       ...safeRates,
     },
-    expenses: {
-      ...DEFAULT_CONFIG.expenses,
-      ...safeExpenses,
-    },
+    expenses: (() => {
+      const baseExpDaily =
+        typeof safeExpenses.expDaily === 'number' && Number.isFinite(safeExpenses.expDaily) && safeExpenses.expDaily >= 0
+          ? safeExpenses.expDaily
+          : DEFAULT_CONFIG.expenses.expDaily;
+      const usePhaseExpenses = Boolean(safeExpenses.usePhaseExpenses);
+      const rawPhaseMap = stripUnsafeKeys<Record<string, unknown>>(safeExpenses.phaseExpDaily);
+      const hasRawPhaseEntries = Object.keys(rawPhaseMap).length > 0;
+      const sanitizedPhasePartial: Partial<Record<PhaseKey, number>> = {};
+      for (const [k, v] of Object.entries(rawPhaseMap)) {
+        const num = Number(v);
+        if (Number.isFinite(num) && num >= 0) {
+          sanitizedPhasePartial[k as PhaseKey] = num;
+        }
+      }
+      return {
+        ...DEFAULT_CONFIG.expenses,
+        ...safeExpenses,
+        expDaily: baseExpDaily,
+        usePhaseExpenses,
+        ...(usePhaseExpenses || hasRawPhaseEntries
+          ? { phaseExpDaily: buildDefaultPhaseExpenses(baseExpDaily, sanitizedPhasePartial) }
+          : { phaseExpDaily: undefined }),
+      };
+    })(),
     majorExpenses: Array.isArray(safeRoot.majorExpenses)
       ? safeRoot.majorExpenses.map((item: unknown, idx: number) => {
           const safeItem = stripUnsafeKeys<Record<string, any>>(item);

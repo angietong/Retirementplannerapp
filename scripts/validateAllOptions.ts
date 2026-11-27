@@ -473,6 +473,148 @@ test('Monte Carlo 500-run simulation calculates monotonically increasing percent
   console.log(`     -> Success Probability:            ${mc.successProbability}%`);
 });
 
+// -------------------------------------------------------------
+// 11. PHASE-SPECIFIC MONTHLY LIVING EXPENSES (PHASES 0-6)
+// -------------------------------------------------------------
+console.log('\n11. PHASE-SPECIFIC MONTHLY LIVING EXPENSES');
+
+test('Flat mode remains identical when usePhaseExpenses is false even if phaseExpDaily is populated', () => {
+  const baseline = runSimulation(DEFAULT_CONFIG, 'baseline');
+  const flatWithSavedMap = runSimulation(
+    {
+      ...DEFAULT_CONFIG,
+      expenses: {
+        ...DEFAULT_CONFIG.expenses,
+        usePhaseExpenses: false,
+        phaseExpDaily: {
+          retirement: 7000,
+          earlyRetirement: 7000,
+          four01k: 6500,
+          ira: 6000,
+          socialSecurity: 5000,
+          medicare: 4800,
+          rmd: 4000,
+        },
+      },
+    },
+    'baseline'
+  );
+  assert(
+    Math.abs(baseline.summary.finalBalance - flatWithSavedMap.summary.finalBalance) < 0.01,
+    'Flat mode must ignore phaseExpDaily when usePhaseExpenses is false'
+  );
+});
+
+test('Per-phase living expenses apply by semantic milestone stage and inflate with general CPI', () => {
+  const phasedConfig = {
+    ...DEFAULT_CONFIG,
+    expenses: {
+      ...DEFAULT_CONFIG.expenses,
+      usePhaseExpenses: true,
+      phaseExpDaily: {
+        retirement: 6500,
+        earlyRetirement: 6400,
+        four01k: 6300,
+        ira: 6200,
+        socialSecurity: 5800,
+        medicare: 5200,
+        rmd: 4400,
+      },
+    },
+  };
+  const res = runSimulation(phasedConfig, 'baseline');
+  const y0 = res.years[0]; // Phase 0: retirement
+  const yIra = res.years.find(y => y.phase === 3); // Age 61: IRA
+  const ySs = res.years.find(y => y.phase === 4); // Age 62-64: Social Security
+  const yMed = res.years.find(y => y.phase === 5); // Age 65-72: Medicare
+  const yRmd = res.years.find(y => y.phase === 6); // Age 73+: RMD
+
+  assert(y0.baseMonthlyLivingExpense === 6500, `Phase 0 expected $6500/mo, got ${y0.baseMonthlyLivingExpense}`);
+  assert(yIra?.baseMonthlyLivingExpense === 6200, `IRA phase expected $6200/mo, got ${yIra?.baseMonthlyLivingExpense}`);
+  assert(ySs?.baseMonthlyLivingExpense === 5800, `SS phase expected $5800/mo, got ${ySs?.baseMonthlyLivingExpense}`);
+  assert(yMed?.baseMonthlyLivingExpense === 5200, `Medicare phase expected $5200/mo, got ${yMed?.baseMonthlyLivingExpense}`);
+  assert(yRmd?.baseMonthlyLivingExpense === 4400, `RMD phase expected $4400/mo, got ${yRmd?.baseMonthlyLivingExpense}`);
+
+  if (yRmd && yRmd.cumGeneralInflation) {
+    const expectedNominal = 12 * 4400 * yRmd.cumGeneralInflation;
+    assert(
+      Math.abs((yRmd.generalExpenses || 0) - expectedNominal) < 0.01,
+      `Expected RMD general expenses to inflate with CPI: ${expectedNominal} vs ${yRmd.generalExpenses}`
+    );
+  }
+});
+
+test('Swapping Social Security and Medicare ages preserves semantic stage expense bindings', () => {
+  const swappedConfig = {
+    ...DEFAULT_CONFIG,
+    milestones: {
+      ...DEFAULT_CONFIG.milestones,
+      ssMinAge: 67,
+      spouseSsMinAge: 67,
+      medicareAge: 65,
+    },
+    expenses: {
+      ...DEFAULT_CONFIG.expenses,
+      usePhaseExpenses: true,
+      phaseExpDaily: {
+        retirement: 6500,
+        earlyRetirement: 6400,
+        four01k: 6300,
+        ira: 6200,
+        socialSecurity: 5800,
+        medicare: 5200,
+        rmd: 4400,
+      },
+    },
+  };
+  const res = runSimulation(swappedConfig, 'baseline');
+  const yAge65 = res.years.find(y => Math.round(y.age) === 65);
+  const yAge67 = res.years.find(y => Math.round(y.age) === 67);
+
+  assert(yAge65?.phase === 4, `Expected age 65 to be Phase 4 (Medicare), got P${yAge65?.phase}`);
+  assert(
+    yAge65?.baseMonthlyLivingExpense === 5200,
+    `Expected Medicare stage expense ($5200) at age 65, got ${yAge65?.baseMonthlyLivingExpense}`
+  );
+  assert(yAge67?.phase === 5, `Expected age 67 to be Phase 5 (Social Security), got P${yAge67?.phase}`);
+  assert(
+    yAge67?.baseMonthlyLivingExpense === 5800,
+    `Expected Social Security stage expense ($5800) at age 67, got ${yAge67?.baseMonthlyLivingExpense}`
+  );
+});
+
+test('What-If Maximize Lifetime Spending scales all per-phase living amounts proportionally', () => {
+  const phasedConfig = {
+    ...DEFAULT_CONFIG,
+    expenses: {
+      ...DEFAULT_CONFIG.expenses,
+      usePhaseExpenses: true,
+      phaseExpDaily: {
+        retirement: 6000,
+        earlyRetirement: 6000,
+        four01k: 6000,
+        ira: 6000,
+        socialSecurity: 5000,
+        medicare: 4500,
+        rmd: 3000,
+      },
+    },
+  };
+  const scenarios = runWhatIfComparisons(phasedConfig, 'baseline');
+  const maxSpend = scenarios.find(s => s.id === 'maxSpending');
+  assert(Boolean(maxSpend), 'maxSpending scenario must exist');
+  const scaled = maxSpend!.appliedConfig.expenses.phaseExpDaily;
+  assert(Boolean(scaled), 'maxSpending appliedConfig must preserve phaseExpDaily');
+
+  const ratioRet = scaled!.retirement / 6000;
+  const ratioRmd = scaled!.rmd / 3000;
+  assert(
+    ratioRet > 1.0 && Math.abs(ratioRet - ratioRmd) < 0.01,
+    `Expected proportional scaling across phases (ret ratio ${ratioRet.toFixed(3)} vs rmd ratio ${ratioRmd.toFixed(3)})`
+  );
+  assert(maxSpend!.summary.fundsRunOutYear === null, 'maxSpending must remain funded through life horizon');
+});
+
 console.log('\n===============================================================');
 console.log(`TEST EXECUTION COMPLETE: ${passedTests} OF ${totalTests} TESTS PASSED`);
 console.log('===============================================================\n');

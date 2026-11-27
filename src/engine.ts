@@ -10,6 +10,9 @@ import {
   AcaComparisonResult,
   MonteCarloPercentileResult,
   IncomeSource,
+  MonthlyExpenses,
+  PhaseKey,
+  PhaseExpenseMap,
 } from './types';
 import { ACA_FPL_BASE } from './defaultData';
 
@@ -260,6 +263,82 @@ export function isSourceAccessible(
   return age >= reqAge;
 }
 
+export const ALL_PHASE_KEYS: PhaseKey[] = [
+  'retirement',
+  'earlyRetirement',
+  'four01k',
+  'ira',
+  'socialSecurity',
+  'medicare',
+  'rmd',
+];
+
+export interface PhaseDefinition {
+  phase: number;
+  key: PhaseKey;
+  shortLabel: string;
+  label: string;
+}
+
+export function buildDefaultPhaseExpenses(
+  baseMonthly: number,
+  existing?: Partial<Record<PhaseKey, number>>
+): PhaseExpenseMap {
+  const safeBase = Number.isFinite(baseMonthly) && baseMonthly >= 0 ? baseMonthly : 0;
+  const result = {} as PhaseExpenseMap;
+  for (const key of ALL_PHASE_KEYS) {
+    const val = existing?.[key];
+    result[key] = typeof val === 'number' && Number.isFinite(val) && val >= 0 ? val : safeBase;
+  }
+  return result;
+}
+
+export function getMonthlyLivingExpenseForPhaseKey(
+  expenses: MonthlyExpenses,
+  phaseKey: PhaseKey
+): number {
+  if (expenses.usePhaseExpenses && expenses.phaseExpDaily) {
+    const val = expenses.phaseExpDaily[phaseKey];
+    if (typeof val === 'number' && Number.isFinite(val) && val >= 0) {
+      return val;
+    }
+  }
+  return expenses.expDaily;
+}
+
+export function getPhaseDefinitions(config: PlannerConfig): PhaseDefinition[] {
+  const four01kAge = config.milestones.four01kAge ?? config.milestones.retireAcctAge ?? 55;
+  const iraAge = config.milestones.iraAge ?? config.milestones.retireAcctAge ?? 60;
+  const ssAge = config.milestones.ssMinAge ?? 62;
+  const medicareAge = config.milestones.medicareAge ?? 65;
+  const rmdAge = config.milestones.rmdAge ?? 73;
+  const ssBeforeMedicare = ssAge <= medicareAge;
+
+  const ssDef: Omit<PhaseDefinition, 'phase'> = {
+    key: 'socialSecurity',
+    shortLabel: 'Social Security',
+    label: `Social Security (${ssAge}+)`,
+  };
+  const medicareDef: Omit<PhaseDefinition, 'phase'> = {
+    key: 'medicare',
+    shortLabel: 'Medicare',
+    label: `Medicare (${medicareAge}+)`,
+  };
+
+  const phase4 = ssBeforeMedicare ? ssDef : medicareDef;
+  const phase5 = ssBeforeMedicare ? medicareDef : ssDef;
+
+  return [
+    { phase: 0, key: 'retirement', shortLabel: 'Retirement Year', label: 'Retirement Year' },
+    { phase: 1, key: 'earlyRetirement', shortLabel: 'Early Retirement', label: 'Early Retirement' },
+    { phase: 2, key: 'four01k', shortLabel: '401(k) Access', label: `401(k) Access (${four01kAge}+)` },
+    { phase: 3, key: 'ira', shortLabel: 'IRA Access', label: `IRA Access (${iraAge}+)` },
+    { phase: 4, ...phase4 },
+    { phase: 5, ...phase5 },
+    { phase: 6, key: 'rmd', shortLabel: 'RMD Mandate', label: `RMD Mandate (${rmdAge}+)` },
+  ];
+}
+
 export function runSimulation(
   config: PlannerConfig,
   stressPreset: StressPreset = 'baseline',
@@ -283,6 +362,9 @@ export function runSimulation(
   const rmdAge = milestones.rmdAge ?? 73;
 
   const spouseSsMinAge = milestones.spouseSsMinAge ?? ssMinAge;
+  const phaseKeyByNumber = new Map<number, PhaseKey>(
+    getPhaseDefinitions(config).map(def => [def.phase, def.key])
+  );
 
   const parseLocalDate = (dateStr?: string): Date | null => {
     if (!dateStr) return null;
@@ -480,8 +562,38 @@ export function runSimulation(
       });
     }
 
-    // Decoupled expenses calculation (General Living + Medical + Major Specified Expenses)
-    const yrGeneralExpenses = 12 * expenses.expDaily * cumGeneralInflation;
+    // Phase calculation (Phases 0 through 6 with separate Social Security and Medicare phases):
+    let phase = 0;
+    if (yr > 0) {
+      const primaryReachedSS = age >= ssMinAge;
+      const spouseReachedSS = hasSpouse && spouseAge !== undefined ? spouseAge >= spouseSsMinAge : false;
+      const ssReached = hasSpouse ? (primaryReachedSS || spouseReachedSS) : primaryReachedSS;
+      const medicareReached = isMedicareActive;
+      const ssBeforeMedicare = ssMinAge <= medicareAge;
+      const ssPhase = ssBeforeMedicare ? 4 : 5;
+      const medicarePhase = ssBeforeMedicare ? 5 : 4;
+
+      if (age < four01kAge) {
+        phase = 1;
+      } else if (age < iraAge) {
+        phase = 2;
+      } else if (age >= rmdAge) {
+        phase = 6;
+      } else if (!ssReached && !medicareReached) {
+        phase = 3;
+      } else if (ssReached && medicareReached) {
+        phase = 5;
+      } else if (ssReached) {
+        phase = ssPhase;
+      } else {
+        phase = medicarePhase;
+      }
+    }
+
+    // Decoupled expenses calculation (General Living by active phase + Medical + Major Specified Expenses)
+    const phaseKey = phaseKeyByNumber.get(phase) ?? 'retirement';
+    const baseMonthlyLivingExpense = getMonthlyLivingExpenseForPhaseKey(expenses, phaseKey);
+    const yrGeneralExpenses = 12 * baseMonthlyLivingExpense * cumGeneralInflation;
     const yrMedicalExpenses = 12 * (baseMedPremium + baseMedOop) * cumMedicalInflation;
     const yrExpenses = yrGeneralExpenses + yrMedicalExpenses + yrMajorExpenses;
 
@@ -514,26 +626,6 @@ export function runSimulation(
     }
 
     const totalSalary = primarySalary + spouseSalary;
-
-    // Phase calculation (Phases 0 through 5 matching UI milestone architecture):
-    let phase = 0;
-    if (yr > 0) {
-      const primaryReachedSS = age >= ssMinAge;
-      const spouseReachedSS = hasSpouse && spouseAge !== undefined ? spouseAge >= spouseSsMinAge : primaryReachedSS;
-      const ssReached = hasSpouse ? (primaryReachedSS || spouseReachedSS) : primaryReachedSS;
-
-      if (age < four01kAge) {
-        phase = 1;
-      } else if (age < iraAge) {
-        phase = 2;
-      } else if (!ssReached && age < medicareAge) {
-        phase = 3;
-      } else if (age < rmdAge) {
-        phase = 4;
-      } else {
-        phase = 5;
-      }
-    }
 
     // Guaranteed income by source with owner verification
     const guaranteedBySource: Record<string, number> = {};
@@ -1383,6 +1475,7 @@ export function runSimulation(
       spouseSalary,
       expenses: yrExpenses,
       generalExpenses: yrGeneralExpenses,
+      baseMonthlyLivingExpense,
       medicalExpenses: yrMedicalExpenses,
       majorExpenses: yrMajorExpenses,
       majorExpensesList: yrMajorExpensesList,

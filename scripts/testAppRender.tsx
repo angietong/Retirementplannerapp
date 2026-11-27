@@ -98,6 +98,50 @@ const configs = [
       },
     },
   },
+  {
+    name: 'Phased Living Expenses (SS 62 before Medicare 65)',
+    config: {
+      ...DEFAULT_CONFIG,
+      expenses: {
+        ...DEFAULT_CONFIG.expenses,
+        usePhaseExpenses: true,
+        phaseExpDaily: {
+          retirement: 6500,
+          earlyRetirement: 6400,
+          four01k: 6200,
+          ira: 6000,
+          socialSecurity: 5600,
+          medicare: 5200,
+          rmd: 4500,
+        },
+      },
+    },
+  },
+  {
+    name: 'Swapped Medicare (65) before SS (67) + Phased Expenses',
+    config: {
+      ...DEFAULT_CONFIG,
+      milestones: {
+        ...DEFAULT_CONFIG.milestones,
+        ssMinAge: 67,
+        spouseSsMinAge: 67,
+        medicareAge: 65,
+      },
+      expenses: {
+        ...DEFAULT_CONFIG.expenses,
+        usePhaseExpenses: true,
+        phaseExpDaily: {
+          retirement: 6800,
+          earlyRetirement: 6500,
+          four01k: 6300,
+          ira: 6100,
+          socialSecurity: 5400,
+          medicare: 5700,
+          rmd: 4600,
+        },
+      },
+    },
+  },
 ];
 
 const inputSubSections: InputSubSection[] = ['sources', 'scenario', 'expenses', 'rates'];
@@ -203,14 +247,30 @@ for (const c of configs) {
           />
         );
         for (const section of inputSubSections) {
-          renderToString(
+          const sectionHtml = renderToString(
             <InputsSection
               config={c.config}
               section={section}
+              years={sim.years}
               onChange={() => {}}
               onNavigateToAcaSimulator={() => {}}
             />
           );
+          if (section === 'expenses' && c.config.expenses.usePhaseExpenses) {
+            const normalizedHtml = sectionHtml.replace(/<!-- -->/g, '');
+            if (!normalizedHtml.includes('Apply Baseline to All') || !normalizedHtml.includes('P6 · RMD Mandate')) {
+              throw new Error(`Phased expenses editor did not render expected 7-phase schedule for ${c.name}`);
+            }
+            if (c.config.milestones.ssMinAge > c.config.milestones.medicareAge) {
+              if (!normalizedHtml.includes('P4 · Medicare') || !normalizedHtml.includes('P5 · Social Security')) {
+                throw new Error(`Swapped phase order did not render P4 Medicare / P5 Social Security for ${c.name}`);
+              }
+            } else {
+              if (!normalizedHtml.includes('P4 · Social Security') || !normalizedHtml.includes('P5 · Medicare')) {
+                throw new Error(`Default phase order did not render P4 Social Security / P5 Medicare for ${c.name}`);
+              }
+            }
+          }
         }
         renderCount++;
       } catch (err: any) {

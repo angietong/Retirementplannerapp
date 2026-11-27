@@ -1,5 +1,5 @@
-import { PlannerConfig, YearSimulationResult, PlanSummary, StressPreset, AcaOptimizationConfig } from './types';
-import { runSimulation } from './engine';
+import { PlannerConfig, YearSimulationResult, PlanSummary, StressPreset, AcaOptimizationConfig, PhaseExpenseMap } from './types';
+import { runSimulation, buildDefaultPhaseExpenses, ALL_PHASE_KEYS } from './engine';
 
 export interface WhatIfScenarioResult {
   id: 'baseline' | 'minTax' | 'minRmd' | 'acaSubsidy' | 'maxSpending' | 'maxEstate';
@@ -205,15 +205,40 @@ export function runWhatIfComparisons(
   let maxSpendSim = baselineSim;
   let maxSpendConfig: PlannerConfig = config;
 
+  const getAverageAnnualBaseLiving = (years: YearSimulationResult[], fallbackMonthly: number): number => {
+    if (!years.length) return fallbackMonthly * 12;
+    const total = years.reduce((sum, y) => sum + (y.baseMonthlyLivingExpense ?? fallbackMonthly) * 12, 0);
+    return total / years.length;
+  };
+
+  const baselineAnnualLiving = getAverageAnnualBaseLiving(baselineSim.years, config.expenses.expDaily);
+
+  const scaleExpensesByMultiplier = (mult: number): PlannerConfig['expenses'] => {
+    const scaledBase = Math.round(config.expenses.expDaily * mult);
+    if (!config.expenses.usePhaseExpenses) {
+      return {
+        ...config.expenses,
+        expDaily: scaledBase,
+      };
+    }
+    const baseMap = buildDefaultPhaseExpenses(config.expenses.expDaily, config.expenses.phaseExpDaily);
+    const scaledPhaseMap = {} as PhaseExpenseMap;
+    for (const key of ALL_PHASE_KEYS) {
+      scaledPhaseMap[key] = Math.round(baseMap[key] * mult);
+    }
+    return {
+      ...config.expenses,
+      expDaily: scaledBase,
+      phaseExpDaily: scaledPhaseMap,
+    };
+  };
+
   for (let iter = 0; iter < 18; iter++) {
     const mid = (lo + hi) / 2;
     const testConfig: PlannerConfig = {
       ...config,
       sources: spendSources,
-      expenses: {
-        ...config.expenses,
-        expDaily: Math.round(config.expenses.expDaily * mid),
-      },
+      expenses: scaleExpensesByMultiplier(mid),
     };
 
     const testSim = runSimulation(testConfig, stressPreset);
@@ -228,11 +253,18 @@ export function runWhatIfComparisons(
   }
 
   const maxSpendPeakRmd = Math.max(0, ...maxSpendSim.years.map(y => y.rmdTotal || 0));
+  const maxSpendAnnualLiving = getAverageAnnualBaseLiving(
+    maxSpendSim.years,
+    config.expenses.expDaily * bestSpendMult
+  );
   const spendDeltaPct = Math.round((bestSpendMult - 1) * 100);
+  const spendScopeLabel = config.expenses.usePhaseExpenses
+    ? 'average phased lifestyle spending (all phases scaled proportionally)'
+    : 'annual lifestyle spending';
   const spendDescription =
     spendDeltaPct >= 0
-      ? `Optimizes tax-efficient withdrawal sequencing, safely supporting up to +${spendDeltaPct}% higher annual lifestyle spending ($${Math.round(config.expenses.expDaily * 12 * bestSpendMult).toLocaleString()}/yr) without premature depletion.`
-      : `Calculates that sustainable spending under this market scenario is $${Math.round(config.expenses.expDaily * 12 * bestSpendMult).toLocaleString()}/yr (${spendDeltaPct}% adjustment to sustain lifetime funding).`;
+      ? `Optimizes tax-efficient withdrawal sequencing, safely supporting up to +${spendDeltaPct}% higher ${spendScopeLabel} ($${Math.round(maxSpendAnnualLiving).toLocaleString()}/yr) without premature depletion.`
+      : `Calculates that sustainable ${spendScopeLabel} under this market scenario is $${Math.round(maxSpendAnnualLiving).toLocaleString()}/yr (${spendDeltaPct}% adjustment to sustain lifetime funding).`;
 
   // -------------------------------------------------------------
   // 5. Scenario 4: Maximize Estate Net Worth (Legacy)
@@ -348,7 +380,7 @@ export function runWhatIfComparisons(
       totalTaxesPaid: baselineSim.summary.totalTaxesPaid,
       finalBalance: baselineSim.summary.finalBalance,
       peakRmd: baselinePeakRmd,
-      maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      maxSustainableAnnualExpense: baselineAnnualLiving,
       appliedConfig: config,
     },
     {
@@ -361,7 +393,7 @@ export function runWhatIfComparisons(
       totalTaxesPaid: acaSim.summary.totalTaxesPaid,
       finalBalance: acaSim.summary.finalBalance,
       peakRmd: acaPeakRmd,
-      maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      maxSustainableAnnualExpense: baselineAnnualLiving,
       appliedConfig: acaAppliedConfig,
     },
     {
@@ -374,7 +406,7 @@ export function runWhatIfComparisons(
       totalTaxesPaid: taxSim.summary.totalTaxesPaid,
       finalBalance: taxSim.summary.finalBalance,
       peakRmd: taxPeakRmd,
-      maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      maxSustainableAnnualExpense: baselineAnnualLiving,
       appliedConfig: bestTaxConfig,
     },
     {
@@ -387,7 +419,7 @@ export function runWhatIfComparisons(
       totalTaxesPaid: rmdSim.summary.totalTaxesPaid,
       finalBalance: rmdSim.summary.finalBalance,
       peakRmd: rmdPeakRmd,
-      maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      maxSustainableAnnualExpense: baselineAnnualLiving,
       appliedConfig: bestRmdConfig,
     },
     {
@@ -400,7 +432,7 @@ export function runWhatIfComparisons(
       totalTaxesPaid: maxSpendSim.summary.totalTaxesPaid,
       finalBalance: maxSpendSim.summary.finalBalance,
       peakRmd: maxSpendPeakRmd,
-      maxSustainableAnnualExpense: config.expenses.expDaily * 12 * bestSpendMult,
+      maxSustainableAnnualExpense: maxSpendAnnualLiving,
       appliedConfig: maxSpendConfig,
     },
     {
@@ -413,7 +445,7 @@ export function runWhatIfComparisons(
       totalTaxesPaid: estateSim.summary.totalTaxesPaid,
       finalBalance: estateSim.summary.finalBalance,
       peakRmd: estatePeakRmd,
-      maxSustainableAnnualExpense: config.expenses.expDaily * 12,
+      maxSustainableAnnualExpense: baselineAnnualLiving,
       appliedConfig: bestEstateConfig,
     },
   ];

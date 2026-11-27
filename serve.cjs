@@ -37,6 +37,12 @@ const server = http.createServer(function (req, res) {
     return;
   }
 
+  // Strip Vite GitHub Pages base prefix when serving /standalone locally
+  const BASE_PREFIX = '/Retirementplannerapp';
+  if (reqUrl === BASE_PREFIX || reqUrl.startsWith(BASE_PREFIX + '/')) {
+    reqUrl = reqUrl.slice(BASE_PREFIX.length) || '/';
+  }
+
   let safeRelPath = path.normalize(reqUrl).replace(/^(\.\.[/\\])+/, '');
   if (safeRelPath === '/' || safeRelPath === '\\' || safeRelPath === '.') {
     safeRelPath = '/index.html';

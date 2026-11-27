@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { PlannerConfig, YearSimulationResult, PlanSummary, DollarDisplayMode } from './types';
-import { resolveAcaCreditAccount } from './engine';
+import { resolveAcaCreditAccount, getPhaseDefinitions, buildDefaultPhaseExpenses } from './engine';
 
 export function exportToExcel(
   config: PlannerConfig,
@@ -20,6 +20,9 @@ export function exportToExcel(
   };
 
   const resolvedAcaCredit = resolveAcaCreditAccount(config.sources, config.acaOptimization);
+  const phaseDefinitions = getPhaseDefinitions(config);
+  const phaseLabelByNum = new Map(phaseDefinitions.map(p => [p.phase, p.shortLabel]));
+  const phaseExpMap = buildDefaultPhaseExpenses(config.expenses.expDaily, config.expenses.phaseExpDaily);
 
   // 1. Inputs Tab
   const inputRows: (string | number | boolean)[][] = [
@@ -52,12 +55,12 @@ export function exportToExcel(
     ['Milestone Ages'],
     ['Primary 401(k) / 403(b) Access Age (Rule of 55)', config.milestones.four01kAge ?? config.milestones.retireAcctAge ?? 55],
     ['Primary IRA / Roth Access Age', config.milestones.iraAge ?? config.milestones.retireAcctAge ?? 60],
-    ['Primary Social Security Earliest Age', config.milestones.ssMinAge],
+    ['Primary Social Security Start Age', config.milestones.ssMinAge],
     ...(hasSpouse
       ? [
           ['Spouse 401(k) / 403(b) Access Age', config.milestones.spouseFour01kAge ?? config.milestones.four01kAge ?? 55],
           ['Spouse IRA / Roth Access Age', config.milestones.spouseIraAge ?? config.milestones.iraAge ?? 60],
-          ['Spouse Social Security Earliest Age', config.milestones.spouseSsMinAge ?? config.milestones.ssMinAge ?? 62],
+          ['Spouse Social Security Start Age', config.milestones.spouseSsMinAge ?? config.milestones.ssMinAge ?? 62],
         ]
       : []),
     ['Medicare Start Age', config.milestones.medicareAge],
@@ -78,6 +81,13 @@ export function exportToExcel(
     [],
     ["Monthly Expenses (Today's Base Dollars)"],
     ['Day-to-day Living Expense ($/mo)', config.expenses.expDaily],
+    ['Vary Day-to-day Living Expense by Phase?', Boolean(config.expenses.usePhaseExpenses)],
+    ...(config.expenses.usePhaseExpenses
+      ? phaseDefinitions.map(def => [
+          `  Phase ${def.phase} — ${def.label} ($/mo)`,
+          phaseExpMap[def.key],
+        ])
+      : []),
     ['Pre-Medicare Medical Premium ($/mo)', config.expenses.expMedPremium],
     ['Pre-Medicare Medical OOP ($/mo)', config.expenses.expMedOop],
     ['Different Post-Medicare Expenses Enabled?', config.expenses.hasMedicarePostExp ?? true],
@@ -162,6 +172,7 @@ export function exportToExcel(
     hasSpouse ? `${primaryName} Age` : 'Age',
     ...(hasSpouse ? [`${spouseName} Age`] : []),
     'Phase',
+    'Phase Name',
     'Salary',
     'Guaranteed Income',
     'Withdrawals',
@@ -212,6 +223,7 @@ export function exportToExcel(
       parseFloat(y.age.toFixed(1)),
       ...(hasSpouse ? [y.spouseAge !== undefined ? parseFloat(y.spouseAge.toFixed(1)) : '—'] : []),
       y.phase,
+      phaseLabelByNum.get(y.phase) ?? '',
       Math.round(y.salary / deflator),
       Math.round(y.guarTotal / deflator),
       Math.round(y.wdTotal / deflator),

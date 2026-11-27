@@ -270,6 +270,63 @@ async function main() {
 
     const scenarios = normalizeSavedScenarios([null, 'bad', { name: 'OK', config: DEFAULT_CONFIG }]);
     assert(scenarios.length === 1 && scenarios[0].name === 'OK', 'Malformed scenario entries should be filtered');
+
+    const phasedNormalized = normalizeConfig({
+      ...DEFAULT_CONFIG,
+      expenses: {
+        ...DEFAULT_CONFIG.expenses,
+        expDaily: 5500,
+        usePhaseExpenses: true,
+        phaseExpDaily: { retirement: 6800, medicare: 5100, rmd: -200, __proto__: { polluted3: true } },
+      },
+    });
+    assert((Object.prototype as any).polluted3 === undefined, 'phaseExpDaily must block prototype pollution');
+    assert(phasedNormalized.expenses.usePhaseExpenses === true, 'usePhaseExpenses must persist');
+    assert(phasedNormalized.expenses.phaseExpDaily?.retirement === 6800, 'Valid phase amount must persist');
+    assert(phasedNormalized.expenses.phaseExpDaily?.medicare === 5100, 'Valid Medicare phase amount must persist');
+    assert(phasedNormalized.expenses.phaseExpDaily?.rmd === 5500, 'Negative phase amount must fallback to expDaily');
+    assert(phasedNormalized.expenses.phaseExpDaily?.socialSecurity === 5500, 'Missing phase amount must backfill with expDaily');
+  });
+
+  await runTest('Encrypted vault preserves per-phase living expenses across encrypt/decrypt round-trip', async () => {
+    const key = await deriveVaultKey('Phased-Vault-Secret-2030!');
+    const phasedConfig = {
+      ...DEFAULT_CONFIG,
+      milestones: { ...DEFAULT_CONFIG.milestones, ssMinAge: 67, spouseSsMinAge: 67, medicareAge: 65 },
+      expenses: {
+        ...DEFAULT_CONFIG.expenses,
+        usePhaseExpenses: true,
+        phaseExpDaily: {
+          retirement: 6600,
+          earlyRetirement: 6400,
+          four01k: 6200,
+          ira: 6000,
+          socialSecurity: 5400,
+          medicare: 5700,
+          rmd: 4500,
+        },
+      },
+    };
+    const raw = serializeVaultEnvelope(
+      await encryptVaultPayload(
+        {
+          schemaVersion: 1,
+          planName: 'Phased Plan',
+          savedAt: '2026-11-27T12:00:00.000Z',
+          activeConfig: phasedConfig,
+          activeScenarioId: null,
+          savedScenarios: [],
+        },
+        key
+      )
+    );
+    const decrypted = await decryptVaultText(raw, 'Phased-Vault-Secret-2030!');
+    const hydrated = normalizeConfig(decrypted.payload.activeConfig);
+    assert(hydrated.expenses.usePhaseExpenses === true, 'Decrypted vault should retain usePhaseExpenses');
+    assert(hydrated.expenses.phaseExpDaily?.socialSecurity === 5400, 'Decrypted vault should retain SS phase amount');
+    assert(hydrated.expenses.phaseExpDaily?.medicare === 5700, 'Decrypted vault should retain Medicare phase amount');
+    assert(hydrated.expenses.phaseExpDaily?.rmd === 4500, 'Decrypted vault should retain RMD phase amount');
+    assert(hydrated.milestones.ssMinAge === 67, 'Decrypted vault should retain custom SS milestone age');
   });
 
   await runTest('Legacy browser localStorage migration reads once and wipes cleanly', () => {

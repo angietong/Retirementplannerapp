@@ -264,7 +264,7 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1.5">Social Security Earliest Age</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">Social Security Start Age</label>
               <NumericInput
                 suffix="yrs"
                 min={50}
@@ -310,7 +310,7 @@ export const ScenarioTab: React.FC<ScenarioTabProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1.5">Spouse Social Security Age</label>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">Spouse Social Security Start Age</label>
                 <NumericInput
                   suffix="yrs"
                   min={50}

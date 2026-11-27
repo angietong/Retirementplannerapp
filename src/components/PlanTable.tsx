@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { YearSimulationResult, PlannerConfig, DollarDisplayMode } from '../types';
-import { isSourceAccessible, getSourcePenaltyFreeAge, isTaxDeferredSource } from '../engine';
+import { isSourceAccessible, getSourcePenaltyFreeAge, isTaxDeferredSource, getPhaseDefinitions } from '../engine';
 import { formatCurrency } from '../utils/formatters';
 
 interface PlanTableProps {
@@ -25,6 +25,8 @@ export const PlanTable: React.FC<PlanTableProps> = ({
   const primaryName = (config.scenario?.userName || 'Primary').split(' ')[0] || 'Primary';
   const spouseName = (config.scenario?.spouseName || 'Spouse').split(' ')[0] || 'Spouse';
   const rmdAge = config.milestones.rmdAge ?? 73;
+  const phaseDefinitions = getPhaseDefinitions(config);
+  const phaseLabelByNum = new Map(phaseDefinitions.map(p => [p.phase, p.shortLabel]));
 
   const toggleExpand = (yr: number) => {
     setExpandedYear(expandedYear === yr ? null : yr);
@@ -107,12 +109,11 @@ export const PlanTable: React.FC<PlanTableProps> = ({
             className="min-h-[38px] border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700 bg-white focus:border-emerald-600 focus:outline-none"
           >
             <option value="all">All Years ({years.length})</option>
-            <option value="0">Phase 0: Retirement Year</option>
-            <option value="1">Phase 1: Early Retirement</option>
-            <option value="2">Phase 2: 401(k) Access ({config.milestones.four01kAge ?? 55}+)</option>
-            <option value="3">Phase 3: IRA Access ({config.milestones.iraAge ?? 60}+)</option>
-            <option value="4">Phase 4: SS &amp; Medicare</option>
-            <option value="5">Phase 5: RMD Mandate ({rmdAge}+)</option>
+            {phaseDefinitions.map(p => (
+              <option key={p.phase} value={String(p.phase)}>
+                Phase {p.phase}: {p.label}
+              </option>
+            ))}
             <option value="depleted">Depleted Years Only</option>
           </select>
         </div>
@@ -227,7 +228,10 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                           {y.spouseAge !== undefined ? y.spouseAge.toFixed(1) : '—'}
                         </td>
                       )}
-                      <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                      <td
+                        className="py-2.5 px-3 text-slate-600 whitespace-nowrap"
+                        title={`Phase ${y.phase}: ${phaseLabelByNum.get(y.phase) ?? ''}`}
+                      >
                         P{y.phase}
                       </td>
                       {showSalary && (
@@ -308,10 +312,14 @@ export const PlanTable: React.FC<PlanTableProps> = ({
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-slate-200">
                               <div className="text-xs font-bold text-slate-900">
                                 Year {y.calYear} · {primaryName} Age {y.age.toFixed(1)}
-                                {hasSpouse && y.spouseAge !== undefined ? ` · ${spouseName} Age ${y.spouseAge.toFixed(1)}` : ''} · Phase {y.phase}
+                                {hasSpouse && y.spouseAge !== undefined ? ` · ${spouseName} Age ${y.spouseAge.toFixed(1)}` : ''} · Phase {y.phase} ({phaseLabelByNum.get(y.phase) ?? ''})
                               </div>
                               <div className="text-xs text-slate-500 tabular-nums">
-                                Expenses: General {formatCurrency((y.generalExpenses || 0) / deflator)} · Healthcare {formatCurrency((y.medicalExpenses || 0) / deflator)} {y.isMedicareActive ? '(Medicare)' : '(Pre-Medicare)'}
+                                Expenses: General {formatCurrency((y.generalExpenses || 0) / deflator)}
+                                {config.expenses.usePhaseExpenses && y.baseMonthlyLivingExpense !== undefined
+                                  ? ` (${formatCurrency(y.baseMonthlyLivingExpense)}/mo base)`
+                                  : ''}{' '}
+                                · Healthcare {formatCurrency((y.medicalExpenses || 0) / deflator)} {y.isMedicareActive ? '(Medicare)' : '(Pre-Medicare)'}
                                 {(y.majorExpenses || 0) > 0 && ` · Major +${formatCurrency((y.majorExpenses || 0) / deflator)}`}
                               </div>
                             </div>

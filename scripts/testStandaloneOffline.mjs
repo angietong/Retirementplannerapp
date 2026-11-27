@@ -97,21 +97,32 @@ async function main() {
   }
   console.log(`  [PASS] CSS & JS bundles have zero external resource URLs and ${fontFiles.length} local font files are bundled`);
 
-  // 3. Verify every href/src local path referenced in standalone/index.html exists on disk
+  // 3. Verify PWA manifest & detect configured base path (e.g. /Retirementplannerapp/)
+  const manifestPath = path.join(STANDALONE_DIR, 'manifest.webmanifest');
+  assert(fs.existsSync(manifestPath), 'manifest.webmanifest missing in /standalone');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const basePrefix =
+    typeof manifest.start_url === 'string' && manifest.start_url.length > 1
+      ? manifest.start_url.replace(/\/+$/, '')
+      : '';
+  const toDiskPath = ref => {
+    const stripped = basePrefix && ref.startsWith(basePrefix + '/')
+      ? ref.slice(basePrefix.length)
+      : ref;
+    return path.join(STANDALONE_DIR, stripped.replace(/^\//, ''));
+  };
+
+  // 4. Verify every href/src local path referenced in standalone/index.html exists on disk
   const localRefs = [...indexHtml.matchAll(/(?:src|href)=["'](\/[^"']+)["']/g)].map(m => m[1]);
   assert(localRefs.length > 0, 'No local asset references found in index.html');
   for (const ref of localRefs) {
-    const diskPath = path.join(STANDALONE_DIR, ref.replace(/^\//, ''));
+    const diskPath = toDiskPath(ref);
     assert(fs.existsSync(diskPath), `Referenced asset missing in /standalone: ${ref}`);
   }
   console.log(`  [PASS] All ${localRefs.length} assets referenced by standalone/index.html exist on disk`);
 
-  // 4. Verify PWA manifest & icons exist on disk
-  const manifestPath = path.join(STANDALONE_DIR, 'manifest.webmanifest');
-  assert(fs.existsSync(manifestPath), 'manifest.webmanifest missing in /standalone');
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   for (const icon of manifest.icons || []) {
-    const iconDisk = path.join(STANDALONE_DIR, icon.src.replace(/^\//, ''));
+    const iconDisk = toDiskPath(icon.src);
     assert(fs.existsSync(iconDisk), `Manifest icon missing: ${icon.src}`);
   }
   console.log(`  [PASS] manifest.webmanifest valid and all ${(manifest.icons || []).length} icons present`);
@@ -142,27 +153,27 @@ async function main() {
     assert(String(rootRes.headers['content-type']).includes('text/html'), 'GET / wrong Content-Type');
     assert(rootRes.body.toString('utf8').includes('<div id="root"></div>'), 'GET / missing root div');
 
-    // Test JS bundle
-    const jsRes = await httpGet(`/assets/${jsFiles[0]}`);
+    // Test JS bundle (both root and base-prefixed path referenced by index.html)
+    const jsRes = await httpGet(`${basePrefix}/assets/${jsFiles[0]}`);
     assert(jsRes.statusCode === 200, `GET JS expected 200, got ${jsRes.statusCode}`);
     assert(String(jsRes.headers['content-type']).includes('application/javascript'), 'JS wrong Content-Type');
     assert(jsRes.body.length > 100_000, 'JS bundle unexpectedly small');
 
     // Test CSS bundle
-    const cssRes = await httpGet(`/assets/${cssFiles[0]}`);
+    const cssRes = await httpGet(`${basePrefix}/assets/${cssFiles[0]}`);
     assert(cssRes.statusCode === 200, `GET CSS expected 200, got ${cssRes.statusCode}`);
     assert(String(cssRes.headers['content-type']).includes('text/css'), 'CSS wrong Content-Type');
 
     // Test self-hosted woff2 font
     const woff2File = fontFiles.find(f => f.endsWith('.woff2')) || fontFiles[0];
-    const fontRes = await httpGet(`/assets/${woff2File}`);
+    const fontRes = await httpGet(`${basePrefix}/assets/${woff2File}`);
     assert(fontRes.statusCode === 200, `GET font expected 200, got ${fontRes.statusCode}`);
     assert(String(fontRes.headers['content-type']).includes('font/'), `Font wrong Content-Type: ${fontRes.headers['content-type']}`);
 
     // Test manifest & SW
-    const manRes = await httpGet('/manifest.webmanifest');
+    const manRes = await httpGet(`${basePrefix}/manifest.webmanifest`);
     assert(manRes.statusCode === 200, 'GET /manifest.webmanifest failed');
-    const swRes = await httpGet('/sw.js');
+    const swRes = await httpGet(`${basePrefix}/sw.js`);
     assert(swRes.statusCode === 200, 'GET /sw.js failed');
 
     // Test SPA fallback

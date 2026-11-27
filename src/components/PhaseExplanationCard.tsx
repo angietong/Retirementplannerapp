@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { PlannerConfig } from '../types';
+import { getPhaseDefinitions } from '../engine';
 import { formatCurrency } from '../utils/formatters';
 
 interface PhaseExplanationCardProps {
@@ -9,6 +10,7 @@ interface PhaseExplanationCardProps {
 
 interface TimelineMilestone {
   id: string;
+  phaseNum: number;
   phase: string;
   title: string;
   ageLabel: string;
@@ -30,10 +32,16 @@ export const PhaseExplanationCard: React.FC<PhaseExplanationCardProps> = ({ conf
     const medicareAge = config.milestones.medicareAge ?? 65;
     const rmdAge = config.milestones.rmdAge ?? 73;
 
+    const phaseDefs = getPhaseDefinitions(config);
+    const ssPhaseNum = phaseDefs.find(p => p.key === 'socialSecurity')?.phase ?? 4;
+    const medicarePhaseNum = phaseDefs.find(p => p.key === 'medicare')?.phase ?? 5;
+    const rmdPhaseNum = phaseDefs.find(p => p.key === 'rmd')?.phase ?? 6;
+
     const primaryName = (config.scenario.userName || 'Primary').split(' ')[0];
     const items: TimelineMilestone[] = [
       {
         id: 'retire',
+        phaseNum: 0,
         phase: 'Phase 0',
         title: `${primaryName} Retires`,
         ageLabel: `Age ${retAge}`,
@@ -43,6 +51,7 @@ export const PhaseExplanationCard: React.FC<PhaseExplanationCardProps> = ({ conf
       },
       {
         id: 'rule55',
+        phaseNum: 2,
         phase: 'Phase 2',
         title: '401(k) Access',
         ageLabel: `Age ${four01kAge}`,
@@ -52,6 +61,7 @@ export const PhaseExplanationCard: React.FC<PhaseExplanationCardProps> = ({ conf
       },
       {
         id: 'ira',
+        phaseNum: 3,
         phase: 'Phase 3',
         title: 'IRA & Roth',
         ageLabel: `Age ${iraAge}`,
@@ -61,25 +71,28 @@ export const PhaseExplanationCard: React.FC<PhaseExplanationCardProps> = ({ conf
       },
       {
         id: 'ss',
-        phase: 'Phase 4',
+        phaseNum: ssPhaseNum,
+        phase: `Phase ${ssPhaseNum}`,
         title: 'Social Security',
         ageLabel: `Age ${ssAge}+`,
         year: birthYear + Math.round(ssAge),
-        detail: `Earliest Social Security eligibility begins at age ${ssAge}. Guaranteed income streams reduce portfolio drawdown pressure.`,
+        detail: `Social Security withdrawal phase begins at age ${ssAge}. Guaranteed income streams reduce portfolio drawdown pressure independently of Medicare.`,
         tone: 'slate',
       },
       {
         id: 'medicare',
-        phase: 'Phase 4',
+        phaseNum: medicarePhaseNum,
+        phase: `Phase ${medicarePhaseNum}`,
         title: 'Medicare',
         ageLabel: `Age ${medicareAge}`,
         year: birthYear + Math.round(medicareAge),
-        detail: `Healthcare transitions from pre-65 private / ACA marketplace coverage to Medicare Part B/D & Medigap at age ${medicareAge}.`,
+        detail: `Healthcare transitions from pre-Medicare private / ACA marketplace coverage to Medicare Part B/D & Medigap at age ${medicareAge}.`,
         tone: 'emerald',
       },
       {
         id: 'rmd',
-        phase: 'Phase 5',
+        phaseNum: rmdPhaseNum,
+        phase: `Phase ${rmdPhaseNum}`,
         title: 'IRS RMDs',
         ageLabel: `Age ${rmdAge}`,
         year: birthYear + Math.round(rmdAge),
@@ -88,7 +101,7 @@ export const PhaseExplanationCard: React.FC<PhaseExplanationCardProps> = ({ conf
       },
     ];
 
-    return items.sort((a, b) => a.year - b.year);
+    return items.sort((a, b) => a.year - b.year || a.phaseNum - b.phaseNum);
   }, [config]);
 
   const majorExpenses = config.majorExpenses || [];
@@ -127,7 +140,9 @@ export const PhaseExplanationCard: React.FC<PhaseExplanationCardProps> = ({ conf
               }`}
             >
               <div className="flex items-center justify-between gap-1 text-[11px] text-slate-500 tabular-nums">
-                <span className="font-semibold text-slate-700">{m.year}</span>
+                <span className="font-semibold text-slate-700">
+                  P{m.phaseNum} · {m.year}
+                </span>
                 <span>{m.ageLabel}</span>
               </div>
               <div className="mt-2 flex items-center justify-between gap-1">

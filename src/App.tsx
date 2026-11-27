@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle, ArrowRight, ShieldCheck, Lock } from 'lucide-react';
 import { DEFAULT_CONFIG, STRESS_PRESETS } from './defaultData';
 import { PlannerConfig, DollarDisplayMode, StressPreset, SavedScenario } from './types';
-import { runSimulation } from './engine';
+import { runSimulation, getPhaseDefinitions } from './engine';
 import { exportToExcel } from './exportExcel';
 import { formatCurrency } from './utils/formatters';
 import { normalizeConfig } from './utils/configNormalizer';
@@ -859,7 +859,12 @@ export function App() {
                                 {y.spouseAge !== undefined ? y.spouseAge.toFixed(1) : '—'}
                               </td>
                             )}
-                            <td className="py-2.5 px-3 text-slate-600">P{y.phase}</td>
+                            <td
+                              className="py-2.5 px-3 text-slate-600"
+                              title={`Phase ${y.phase}: ${getPhaseDefinitions(config).find(p => p.phase === y.phase)?.shortLabel ?? ''}`}
+                            >
+                              P{y.phase}
+                            </td>
                             <td className="py-2.5 px-3 text-right font-mono tabular-nums text-emerald-700">
                               {guar > 0 ? formatCurrency(guar) : '—'}
                             </td>
@@ -953,6 +958,7 @@ export function App() {
             <InputsSection
               config={config}
               section={inputSubSection}
+              years={simulationResults.years}
               onChange={handleConfigChange}
               onNavigateToAcaSimulator={() => setActiveSection('aca')}
             />

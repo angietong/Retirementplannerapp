@@ -8,6 +8,7 @@ import {
   MilestoneAges,
   RateAssumptions,
   MonthlyExpenses,
+  YearSimulationResult,
 } from '../types';
 import { SourcesTab } from './inputs/SourcesTab';
 import { ScenarioTab } from './inputs/ScenarioTab';
@@ -20,6 +21,7 @@ export type InputSubSection = 'sources' | 'scenario' | 'expenses' | 'rates';
 interface InputsSectionProps {
   config: PlannerConfig;
   section: InputSubSection;
+  years?: YearSimulationResult[];
   onChange: (updated: PlannerConfig) => void;
   onNavigateToAcaSimulator?: () => void;
 }
@@ -27,6 +29,7 @@ interface InputsSectionProps {
 export const InputsSection: React.FC<InputsSectionProps> = ({
   config,
   section,
+  years,
   onChange,
   onNavigateToAcaSimulator,
 }) => {
@@ -83,6 +86,16 @@ export const InputsSection: React.FC<InputsSectionProps> = ({
       expenses: {
         ...config.expenses,
         [key]: value,
+      },
+    });
+  };
+
+  const updateExpensesPatch = (patch: Partial<MonthlyExpenses>) => {
+    onChange({
+      ...config,
+      expenses: {
+        ...config.expenses,
+        ...patch,
       },
     });
   };
@@ -258,7 +271,9 @@ export const InputsSection: React.FC<InputsSectionProps> = ({
         <div className="space-y-6">
           <ExpensesTab
             config={config}
+            years={years}
             onUpdateExpenses={updateExpenses}
+            onUpdateExpensesPatch={updateExpensesPatch}
             onNavigateToAca={onNavigateToAcaSimulator}
           />
           <MajorExpensesTab
